@@ -1,0 +1,350 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Modern CSS Reset */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Root Variables for Design Tokens */
+:root {
+  /* Typography */
+  --font-family-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  
+  /* Colors */
+  --color-background: #ffffff;
+  --color-surface: #f9fafb;
+  --color-border: #e5e7eb;
+  --color-text-primary: #111827;
+  --color-text-secondary: #6b7280;
+  --color-text-muted: #9ca3af;
+  
+  /* Shadows */
+  --shadow-soft: 0 2px 4px 0 rgba(0, 0, 0, 0.05);
+  --shadow-medium: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-large: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  
+  /* Focus ring */
+  --focus-ring: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  --focus-ring-offset: 2px;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-background: #0f172a;
+    --color-surface: #1e293b;
+    --color-border: #334155;
+    --color-text-primary: #f1f5f9;
+    --color-text-secondary: #cbd5e1;
+    --color-text-muted: #94a3b8;
+  }
+}
+
+/* Base Styles */
+html {
+  font-family: var(--font-family-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-text-primary);
+  line-height: 1.6;
+  font-size: 1rem;
+  max-width: 100vw;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+}
+
+/* Focus Management */
+*:focus {
+  outline: none;
+}
+
+*:focus-visible {
+  outline: 2px solid theme('colors.primary.600');
+  outline-offset: var(--focus-ring-offset);
+  border-radius: 0.25rem;
+}
+
+/* Skip to main content link */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 6px;
+  background: theme('colors.primary.600');
+  color: white;
+  padding: 8px;
+  text-decoration: none;
+  border-radius: 4px;
+  z-index: 1000;
+  transition: top 0.3s;
+}
+
+.skip-link:focus {
+  top: 6px;
+}
+
+/* Screen reader only content */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Component Utilities */
+@layer components {
+  /* Layout */
+  .app-container {
+    @apply min-h-screen flex flex-col bg-white;
+  }
+  
+  .main-content {
+    @apply flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+  
+  .page-container {
+    @apply max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8;
+  }
+  
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  
+  .btn-primary {
+    @apply bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500 shadow-medium hover:shadow-large;
+  }
+  
+  .btn-secondary {
+    @apply bg-secondary-100 text-secondary-900 hover:bg-secondary-200 focus:ring-secondary-500 border border-secondary-300;
+  }
+  
+  .btn-outline {
+    @apply bg-transparent text-primary-600 hover:bg-primary-50 focus:ring-primary-500 border border-primary-300 hover:border-primary-400;
+  }
+  
+  .btn-lg {
+    @apply px-6 py-3 text-base;
+  }
+  
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+  
+  /* Forms */
+  .form-container {
+    @apply max-w-md mx-auto bg-white rounded-2xl shadow-large border border-secondary-200 p-8;
+  }
+  
+  .form-group {
+    @apply space-y-2;
+  }
+  
+  .form-label {
+    @apply block text-sm font-medium text-secondary-900;
+  }
+  
+  .form-input {
+    @apply w-full px-4 py-3 bg-white border border-secondary-300 rounded-lg text-secondary-900 placeholder-secondary-500 focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-colors;
+  }
+  
+  .form-error {
+    @apply text-sm text-error-600 mt-1;
+  }
+  
+  .form-success {
+    @apply text-sm text-success-600 mt-1;
+  }
+  
+  /* Cards */
+  .card {
+    @apply bg-white rounded-xl shadow-medium border border-secondary-200 p-6;
+  }
+  
+  .card-header {
+    @apply border-b border-secondary-200 pb-4 mb-4;
+  }
+  
+  .card-title {
+    @apply text-lg font-semibold text-secondary-900;
+  }
+  
+  .card-subtitle {
+    @apply text-sm text-secondary-600 mt-1;
+  }
+  
+  /* Stats Cards */
+  .stat-card {
+    @apply bg-gradient-to-br from-white to-secondary-50 rounded-xl shadow-medium border border-secondary-200 p-6 hover:shadow-large transition-shadow;
+  }
+  
+  .stat-label {
+    @apply text-xs font-medium text-secondary-600 uppercase tracking-wide;
+  }
+  
+  .stat-value {
+    @apply text-3xl font-bold text-primary-600 mt-2;
+  }
+  
+  /* Loading States */
+  .loading {
+    @apply opacity-60 pointer-events-none animate-pulse-soft;
+  }
+  
+  .spinner {
+    @apply animate-spin rounded-full border-2 border-secondary-300 border-t-primary-600;
+  }
+  
+  /* Animations */
+  .fade-in {
+    @apply animate-fade-in;
+  }
+  
+  .slide-up {
+    @apply animate-slide-up;
+  }
+  
+  /* Monastery Calendar Styles */
+  .monastery-calendar {
+    @apply w-full max-w-4xl mx-auto;
+  }
+  
+  .monastery-calendar-card {
+    @apply shadow-large border-monastery-200 bg-lotus-50;
+  }
+  
+  .calendar-wrapper {
+    @apply flex justify-center;
+  }
+  
+  .monastery-calendar-widget {
+    @apply w-full max-w-2xl bg-transparent border-none;
+  }
+  
+  /* React Calendar Customization */
+  .react-calendar {
+    @apply w-full bg-transparent border-none font-sans;
+  }
+  
+  .react-calendar__navigation {
+    @apply flex items-center justify-between mb-4;
+  }
+  
+  .react-calendar__navigation button {
+    @apply min-w-[44px] h-11 bg-monastery-100 text-monastery-800 border border-monastery-200 rounded-lg hover:bg-monastery-200 transition-colors text-lg font-medium;
+  }
+  
+  .react-calendar__navigation button:disabled {
+    @apply bg-secondary-100 text-secondary-400 cursor-not-allowed;
+  }
+  
+  .react-calendar__viewContainer {
+    @apply bg-white rounded-xl border border-monastery-200 p-4 shadow-soft;
+  }
+  
+  .react-calendar__month-view__weekdays {
+    @apply text-xs font-semibold text-monastery-700 border-b border-monastery-100 pb-2 mb-2;
+  }
+  
+  .react-calendar__month-view__weekdays__weekday {
+    @apply text-center p-2;
+  }
+  
+  .react-calendar__tile {
+    @apply relative w-12 h-12 bg-transparent border-none text-monastery-700 hover:bg-primary-50 transition-colors rounded-lg m-1 flex items-center justify-center cursor-pointer;
+  }
+  
+  .react-calendar__tile:hover {
+    @apply bg-primary-100;
+  }
+  
+  .react-calendar__tile--active {
+    @apply bg-primary-500 text-white;
+  }
+  
+  .react-calendar__tile--now {
+    @apply bg-primary-50 text-primary-700 font-semibold;
+  }
+  
+  /* Custom Availability Styles */
+  .react-calendar__tile.past-date {
+    @apply text-secondary-400 cursor-not-allowed bg-secondary-50;
+  }
+  
+  .react-calendar__tile.past-date:hover {
+    @apply bg-secondary-50;
+  }
+  
+  .react-calendar__tile.fully-available {
+    @apply bg-success-50 text-success-800 border border-success-200;
+  }
+  
+  .react-calendar__tile.fully-available:hover {
+    @apply bg-success-100;
+  }
+  
+  .react-calendar__tile.partially-available {
+    @apply bg-warning-50 text-warning-800 border border-warning-200;
+  }
+  
+  .react-calendar__tile.partially-available:hover {
+    @apply bg-warning-100;
+  }
+  
+  .react-calendar__tile.fully-booked {
+    @apply bg-error-50 text-error-600 cursor-not-allowed border border-error-200;
+  }
+  
+  .react-calendar__tile.fully-booked:hover {
+    @apply bg-error-50;
+  }
+  
+  .react-calendar__tile.selected-date {
+    @apply bg-primary-500 text-white border-2 border-primary-600;
+  }
+  
+  .calendar-tile-content {
+    @apply absolute top-1 right-1;
+  }
+  
+  .availability-indicator {
+    @apply w-2 h-2 rounded-full;
+  }
+  
+  .availability-indicator.full .availability-dot {
+    @apply bg-success-500;
+  }
+  
+  .availability-indicator.medium .availability-dot {
+    @apply bg-warning-500;
+  }
+  
+  .availability-indicator.low .availability-dot {
+    @apply bg-warning-600;
+  }
+  
+  .availability-indicator.booked .availability-dot {
+    @apply bg-error-500;
+  }
+  
+  .availability-dot {
+    @apply w-full h-full rounded-full;
+  }
+  
+  .calendar-legend .availability-dot {
+    @apply w-3 h-3 rounded-full;
+  }
+}

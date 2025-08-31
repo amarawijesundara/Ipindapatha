@@ -1,0 +1,187 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Multi-Tenant Models
+model Tenant {
+  id          Int      @id @default(autoincrement())
+  name        String   @db.VarChar(100)
+  subdomain   String   @unique @db.VarChar(50)
+  domain      String?  @db.VarChar(100)
+  description String?  @db.Text
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  
+  // Relations
+  users               User[]
+  bookings           Booking[]
+  bookingAvailability BookingAvailability[]
+  refreshTokens      RefreshToken[]
+  tenantUsers        TenantUser[]
+  tenantSettings     TenantSettings?
+  tenantSubscription TenantSubscription?
+  
+  @@index([subdomain])
+  @@index([isActive])
+  @@map("tenants")
+}
+
+model TenantUser {
+  id       Int    @id @default(autoincrement())
+  tenantId Int    @map("tenant_id")
+  userId   Int    @map("user_id")
+  role     String @default("user") @db.VarChar(20)
+  isActive Boolean @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([tenantId, userId])
+  @@index([tenantId])
+  @@index([userId])
+  @@index([role])
+  @@map("tenant_users")
+}
+
+model TenantSettings {
+  id               Int     @id @default(autoincrement())
+  tenantId         Int     @unique @map("tenant_id")
+  businessHours    Json?   @map("business_hours")
+  bookingRules     Json?   @map("booking_rules")
+  customFields     Json?   @map("custom_fields")
+  branding         Json?   @map("branding")
+  notifications    Json?   @map("notifications")
+  features         Json?   @map("features")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  @@map("tenant_settings")
+}
+
+model TenantSubscription {
+  id              Int      @id @default(autoincrement())
+  tenantId        Int      @unique @map("tenant_id")
+  plan            String   @db.VarChar(50)
+  status          String   @default("active") @db.VarChar(20)
+  startDate       DateTime @map("start_date") @db.Date
+  endDate         DateTime? @map("end_date") @db.Date
+  maxUsers        Int      @default(10) @map("max_users")
+  maxBookings     Int      @default(1000) @map("max_bookings")
+  features        Json?
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  @@index([plan])
+  @@index([status])
+  @@map("tenant_subscriptions")
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  tenantId     Int?      @map("tenant_id") // Nullable for platform super admins
+  username     String    @db.VarChar(50)
+  email        String    @db.VarChar(100)
+  password     String    @db.VarChar(255)
+  role         String    @default("user") @db.VarChar(20)
+  phoneNumber  String?   @map("phone_number") @db.VarChar(20)
+  address      String?   @db.Text
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  
+  // Relations
+  tenant        Tenant?       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  bookings      Booking[]
+  refreshTokens RefreshToken[]
+  tenantUsers   TenantUser[]
+  
+  @@unique([tenantId, username])
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([username])
+  @@index([email])
+  @@index([role])
+  @@index([isActive])
+  @@map("users")
+}
+
+model Booking {
+  id          Int       @id @default(autoincrement())
+  tenantId    Int       @map("tenant_id")
+  userId      Int       @map("user_id")
+  bookingDate DateTime  @map("booking_date") @db.Date
+  bookingTime DateTime  @map("booking_time") @db.Time(6)
+  eventNote   String?   @map("event_note") @db.Text
+  status      String    @default("pending") @db.VarChar(20)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  
+  // Relations
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([tenantId])
+  @@index([userId])
+  @@index([tenantId, bookingDate])
+  @@index([tenantId, status])
+  @@index([tenantId, bookingDate, bookingTime])
+  @@map("bookings")
+}
+
+model BookingAvailability {
+  id           Int       @id @default(autoincrement())
+  tenantId     Int       @map("tenant_id")
+  date         DateTime  @db.Date
+  timeSlot     DateTime  @map("time_slot") @db.Time(6)
+  isAvailable  Boolean   @default(true) @map("is_available")
+  maxBookings  Int       @default(1) @map("max_bookings")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  
+  // Relations
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  @@unique([tenantId, date, timeSlot])
+  @@index([tenantId])
+  @@index([tenantId, date])
+  @@index([tenantId, isAvailable])
+  @@map("booking_availability")
+}
+
+model RefreshToken {
+  id        Int       @id @default(autoincrement())
+  tenantId  Int       @map("tenant_id")
+  userId    Int       @map("user_id")
+  token     String    @db.VarChar(255)
+  expiresAt DateTime  @map("expires_at") @db.Timestamp(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  
+  // Relations
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([tenantId])
+  @@index([userId])
+  @@index([token])
+  @@map("refresh_tokens")
+}

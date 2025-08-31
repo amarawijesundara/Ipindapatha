@@ -1,0 +1,310 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { AdminTable, Button, Loading } from '@/components/ui'
+
+interface Booking {
+  id: number
+  user_id: number
+  booking_date: string
+  booking_time: string
+  event_note?: string
+  status: 'pending' | 'confirmed' | 'cancelled'
+  created_at: string
+  updated_at: string
+  username?: string
+  email?: string
+  tenant?: {
+    name: string
+    subdomain: string
+  }
+}
+
+export default function BookingsPage() {
+  const [bookings, setBookings] = useState<Booking[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState('all')
+
+  useEffect(() => {
+    fetchBookings()
+  }, [])
+
+  const fetchBookings = async () => {
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) return
+
+      // Note: This assumes we have a platform-wide bookings endpoint
+      // We'll need to create this endpoint or use existing booking API with admin permissions
+      const response = await fetch('/api/bookings', {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        // Transform the data to match our interface
+        const transformedBookings = data.bookings?.map((booking: any) => ({
+          ...booking,
+          booking_date: booking.booking_date || booking.bookingDate,
+          booking_time: booking.booking_time || booking.bookingTime,
+          event_note: booking.event_note || booking.eventNote,
+          username: booking.username || 'Unknown User',
+          email: booking.email || '',
+          tenant: booking.tenant || { name: 'Unknown Tenant', subdomain: 'unknown' }
+        })) || []
+        setBookings(transformedBookings)
+      }
+    } catch (error) {
+      console.error('Failed to fetch bookings:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'confirmed':
+        return 'bg-success-100 text-success-800'
+      case 'pending':
+        return 'bg-warning-100 text-warning-800'
+      case 'cancelled':
+        return 'bg-error-100 text-error-800'
+      default:
+        return 'bg-monastery-100 text-monastery-800'
+    }
+  }
+
+  const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString()
+  }
+
+  const formatTime = (timeStr: string) => {
+    // Handle both full datetime and time-only strings
+    if (timeStr.includes('T') || timeStr.includes(' ')) {
+      return new Date(timeStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }
+    // If it's already just a time string
+    const [hours, minutes] = timeStr.split(':')
+    const hour12 = parseInt(hours) % 12 || 12
+    const ampm = parseInt(hours) >= 12 ? 'PM' : 'AM'
+    return `${hour12}:${minutes} ${ampm}`
+  }
+
+  const filteredBookings = bookings.filter(booking => {
+    if (filter === 'all') return true
+    return booking.status === filter
+  })
+
+  const columns = [
+    {
+      key: 'username',
+      label: 'User',
+      render: (booking: Booking) => (
+        <div>
+          <div className="font-medium text-monastery-800">{booking.username}</div>
+          <div className="text-sm text-monastery-600">{booking.email}</div>
+        </div>
+      ),
+      sortable: true,
+      searchable: true,
+    },
+    {
+      key: 'tenant.name',
+      label: 'Tenant',
+      render: (booking: Booking) => (
+        booking.tenant ? (
+          <div>
+            <div className="font-medium text-monastery-800">{booking.tenant.name}</div>
+            <div className="text-sm font-mono text-monastery-600">{booking.tenant.subdomain}</div>
+          </div>
+        ) : (
+          <span className="text-monastery-500 italic">No tenant</span>
+        )
+      ),
+      sortable: true,
+      searchable: true,
+    },
+    {
+      key: 'booking_date',
+      label: 'Date & Time',
+      render: (booking: Booking) => (
+        <div>
+          <div className="font-medium text-monastery-800">{formatDate(booking.booking_date)}</div>
+          <div className="text-sm text-monastery-600">{formatTime(booking.booking_time)}</div>
+        </div>
+      ),
+      sortable: true,
+    },
+    {
+      key: 'event_note',
+      label: 'Event Details',
+      render: (booking: Booking) => (
+        <div className="max-w-xs">
+          {booking.event_note ? (
+            <div className="text-sm text-monastery-700 truncate" title={booking.event_note}>
+              {booking.event_note}
+            </div>
+          ) : (
+            <span className="text-monastery-500 italic">No details</span>
+          )}
+        </div>
+      ),
+      searchable: true,
+    },
+    {
+      key: 'status',
+      label: 'Status',
+      render: (booking: Booking) => (
+        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(booking.status)}`}>
+          {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
+        </span>
+      ),
+      sortable: true,
+    },
+    {
+      key: 'created_at',
+      label: 'Booked',
+      render: (booking: Booking) => (
+        <span className="text-monastery-600">
+          {formatDate(booking.created_at)}
+        </span>
+      ),
+      sortable: true,
+    },
+    {
+      key: 'actions',
+      label: 'Actions',
+      render: (booking: Booking) => (
+        <div className="flex items-center space-x-2">
+          {booking.status === 'pending' && (
+            <>
+              <Button
+                size="sm"
+                variant="success"
+                onClick={() => {
+                  // TODO: Implement confirm booking functionality
+                  console.log('Confirm booking:', booking.id)
+                }}
+              >
+                Confirm
+              </Button>
+              <Button
+                size="sm"
+                variant="error"
+                onClick={() => {
+                  // TODO: Implement cancel booking functionality
+                  console.log('Cancel booking:', booking.id)
+                }}
+              >
+                Cancel
+              </Button>
+            </>
+          )}
+          {booking.status === 'confirmed' && (
+            <Button
+              size="sm"
+              variant="error"
+              onClick={() => {
+                // TODO: Implement cancel booking functionality
+                console.log('Cancel booking:', booking.id)
+              }}
+            >
+              Cancel
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              // TODO: Implement view booking details functionality
+              console.log('View booking details:', booking.id)
+            }}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+          </Button>
+        </div>
+      ),
+    },
+  ]
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold text-monastery-800">Booking Management</h1>
+        </div>
+        <div className="flex items-center justify-center min-h-64">
+          <Loading size="lg" />
+        </div>
+      </div>
+    )
+  }
+
+  // Calculate stats
+  const pendingBookings = bookings.filter(b => b.status === 'pending').length
+  const confirmedBookings = bookings.filter(b => b.status === 'confirmed').length
+  const cancelledBookings = bookings.filter(b => b.status === 'cancelled').length
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-monastery-800">Booking Management</h1>
+          <p className="text-monastery-600">Manage Dhane ceremony bookings across all tenants</p>
+        </div>
+        
+        <div className="flex items-center space-x-4">
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="px-3 py-1 border border-monastery-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+          >
+            <option value="all">All Bookings</option>
+            <option value="pending">Pending</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+          <div className="text-sm text-monastery-600">
+            {filteredBookings.length} booking{filteredBookings.length !== 1 ? 's' : ''}
+          </div>
+        </div>
+      </div>
+
+      {/* Quick Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-white rounded-lg border border-monastery-200 p-4">
+          <div className="text-sm text-monastery-600">Total Bookings</div>
+          <div className="text-2xl font-bold text-monastery-800">{bookings.length}</div>
+        </div>
+        <div className="bg-white rounded-lg border border-monastery-200 p-4">
+          <div className="text-sm text-monastery-600">Pending</div>
+          <div className="text-2xl font-bold text-warning-600">{pendingBookings}</div>
+        </div>
+        <div className="bg-white rounded-lg border border-monastery-200 p-4">
+          <div className="text-sm text-monastery-600">Confirmed</div>
+          <div className="text-2xl font-bold text-success-600">{confirmedBookings}</div>
+        </div>
+        <div className="bg-white rounded-lg border border-monastery-200 p-4">
+          <div className="text-sm text-monastery-600">Cancelled</div>
+          <div className="text-2xl font-bold text-error-600">{cancelledBookings}</div>
+        </div>
+      </div>
+
+      {/* Bookings Table */}
+      <AdminTable
+        data={filteredBookings}
+        columns={columns}
+        searchPlaceholder="Search bookings by user, tenant, or event details..."
+        emptyMessage="No bookings found."
+        onRowClick={(booking) => {
+          // TODO: Implement booking details view
+          console.log('View booking:', booking.id)
+        }}
+      />
+    </div>
+  )
+}
