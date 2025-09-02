@@ -1,390 +1,319 @@
-# Troubleshooting Guide
+# Multi-Tenant Monastery Booking System - Troubleshooting Guide
 
-This document covers common issues and their solutions for the JWT Authentication Next.js application.
+## Table of Contents
+- [Quick Diagnostics](#quick-diagnostics)
+- [Common Issues](#common-issues)
+  - [Authentication Issues](#authentication-issues)
+  - [Tenant Resolution Issues](#tenant-resolution-issues)
+  - [Database Problems](#database-problems)
+  - [Booking System Issues](#booking-system-issues)
+  - [Admin Panel Issues](#admin-panel-issues)
+- [Development Environment](#development-environment)
+- [Production Issues](#production-issues)
+- [Performance Problems](#performance-problems)
+- [Security Concerns](#security-concerns)
+- [Debugging Tools](#debugging-tools)
+- [Log Analysis](#log-analysis)
+- [Recovery Procedures](#recovery-procedures)
 
 ## Quick Diagnostics
 
-### Health Check Checklist
-- [ ] PostgreSQL is running and accessible
-- [ ] Environment variables are correctly set
-- [ ] Dependencies are installed (`node_modules` exists)
-- [ ] Database tables exist
-- [ ] Application builds without errors
-- [ ] Port 3000 is available
-
-### Basic Troubleshooting Commands
+### System Health Check
 ```bash
-# Check if PostgreSQL is running
-sudo systemctl status postgresql  # Linux
-brew services list | grep postgres  # macOS
+# Check if the application is running
+curl http://localhost:3000/api/health
 
-# Test database connection
-psql -h localhost -U postgres -d auth_app -c "SELECT NOW();"
+# Expected response
+{
+  "status": "healthy",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "services": {
+    "database": "connected",
+    "email": "available"
+  }
+}
+```
 
-# Check Node.js and npm versions
-node --version  # Should be 18+
-npm --version
+### Database Connection Test
+```bash
+# Test PostgreSQL connection
+psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME -c "SELECT NOW();"
 
-# Check if Next.js is installed
-npx next --version
+# Alternative using environment variables
+node -e "
+const { Pool } = require('pg');
+const pool = new Pool({
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME
+});
+pool.query('SELECT NOW()', (err, res) => {
+  console.log(err ? 'Database Error:' + err : 'Database OK:', res.rows[0]);
+  pool.end();
+});
+"
+```
 
-# Check port availability
-lsof -i :3000
+### Environment Variables Check
+```bash
+# Check critical environment variables
+node -e "
+const required = ['DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME', 'JWT_SECRET'];
+required.forEach(key => {
+  console.log(key + ':', process.env[key] ? '✓ Set' : '✗ Missing');
+});
+"
 ```
 
 ---
 
 ## Common Issues
 
-### 1. Database Connection Issues
+### Authentication Issues
 
-#### Error: "Database connection failed"
+#### Problem: "Invalid or expired token" error
 **Symptoms:**
-- Application won't start
-- Error: `ECONNREFUSED` or `Connection terminated`
+- Users getting logged out unexpectedly
+- API requests returning 401 errors
+- Token verification failing
+
+**Diagnosis:**
+```bash
+# Check JWT token validity
+node -e "
+const jwt = require('jsonwebtoken');
+const token = 'YOUR_TOKEN_HERE';
+try {
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  console.log('Token valid:', decoded);
+} catch (err) {
+  console.log('Token error:', err.message);
+}
+"
+```
 
 **Solutions:**
+1. **Token Expiry**: Check if token has expired
+   ```javascript
+   // Check token expiration
+   const decoded = jwt.decode(token);
+   const now = Math.floor(Date.now() / 1000);
+   if (decoded.exp < now) {
+     console.log('Token expired');
+   }
+   ```
 
-**Check PostgreSQL Status**
-```bash
-# Linux
-sudo systemctl status postgresql
-sudo systemctl start postgresql  # if not running
+2. **JWT Secret Mismatch**: Verify JWT_SECRET is consistent
+   ```bash
+   # Ensure JWT_SECRET is set and consistent across restarts
+   echo $JWT_SECRET | wc -c  # Should be at least 32 characters
+   ```
 
-# macOS
-brew services start postgresql
+3. **Token Format**: Ensure token is properly formatted
+   ```javascript
+   // Token should start with "Bearer " in Authorization header
+   const authHeader = request.headers.authorization;
+   const token = authHeader?.substring(7);  // Remove "Bearer "
+   ```
 
-# Windows
-# Check Services.msc for PostgreSQL service
-```
+#### Problem: User registration fails
+**Solutions:**
+1. **Check Tenant Context**:
+   ```bash
+   # Verify subdomain resolution
+   curl -H "Host: st-marys.localhost:3000" http://localhost:3000/api/auth/register
+   ```
 
-**Verify Database Exists**
-```bash
-psql -U postgres -l  # List all databases
-# If auth_app doesn't exist:
-createdb auth_app
-```
-
-**Check Connection Settings**
-```bash
-# Test connection with same credentials as .env.local
-psql -h localhost -p 5432 -U postgres -d auth_app
-
-# If connection fails, check:
-# 1. Password in .env.local
-# 2. Database host/port
-# 3. Database name
-```
-
-**Check pg_hba.conf (PostgreSQL access control)**
-```bash
-# Find config file
-sudo -u postgres psql -c "SHOW config_file;"
-
-# Common location: /etc/postgresql/*/main/pg_hba.conf
-# Add line for local development:
-host    all             all             127.0.0.1/32            md5
-```
+2. **Database Constraints**:
+   ```sql
+   -- Check for existing users
+   SELECT username, email, tenant_id FROM users 
+   WHERE username = 'existing_user' OR email = 'user@example.com';
+   ```
 
 ---
 
-### 2. Application Won't Start
+### Tenant Resolution Issues
 
-#### Error: "next: not found"
+#### Problem: "Tenant not found" error
 **Symptoms:**
+- 404 errors when accessing tenant subdomains
+- Middleware tenant resolution failing
+- Cross-tenant data access issues
+
+**Diagnosis:**
 ```bash
-sh: 1: next: not found
+# Test subdomain extraction
+node -e "
+const extractSubdomain = (host) => {
+  const hostname = host.split(':')[0];
+  if (hostname === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
+    return null;
+  }
+  const parts = hostname.split('.');
+  if (parts.length < 3) return null;
+  const subdomain = parts[0];
+  if (['www', 'api', 'admin'].includes(subdomain)) {
+    return null;
+  }
+  return subdomain;
+};
+console.log('st-marys.example.com:', extractSubdomain('st-marys.example.com'));
+console.log('localhost:3000:', extractSubdomain('localhost:3000'));
+"
 ```
 
 **Solutions:**
-```bash
-# Clear node_modules and reinstall
-rm -rf node_modules package-lock.json
-npm install
+1. **Check Tenant Exists**:
+   ```sql
+   SELECT id, name, subdomain, is_active FROM tenants 
+   WHERE subdomain = 'st-marys' AND is_active = true;
+   ```
 
-# Use npx if still failing
-npx next dev
+2. **DNS/Host Configuration**:
+   ```bash
+   # For development, add to /etc/hosts
+   echo "127.0.0.1 st-marys.localhost" >> /etc/hosts
+   ```
 
-# Check if Next.js is in package.json
-cat package.json | grep next
+---
+
+### Database Problems
+
+#### Problem: Connection pool exhaustion
+**Diagnosis:**
+```sql
+-- Check active connections
+SELECT count(*) FROM pg_stat_activity WHERE state = 'active';
+
+-- Check connection limits
+SHOW max_connections;
+
+-- Check slow queries
+SELECT query, state, query_start 
+FROM pg_stat_activity 
+WHERE state != 'idle' 
+ORDER BY query_start;
 ```
 
-#### Error: "Port 3000 already in use"
 **Solutions:**
-```bash
-# Find process using port 3000
-lsof -ti:3000
+1. **Increase Pool Size**:
+   ```javascript
+   // In db.ts or Prisma configuration
+   const pool = new Pool({
+     max: 20,  // Increase from default 10
+     idleTimeoutMillis: 30000,
+     connectionTimeoutMillis: 2000,
+   });
+   ```
 
-# Kill the process
-kill -9 $(lsof -ti:3000)
+---
 
-# Or use different port
-npm run dev -- -p 3001
+### Booking System Issues
+
+#### Problem: Booking conflicts or double bookings
+**Diagnosis:**
+```sql
+-- Check for booking conflicts
+SELECT b1.id, b1.booking_date, b1.booking_time, b1.user_id, b1.tenant_id
+FROM bookings b1
+JOIN bookings b2 ON b1.booking_date = b2.booking_date 
+                 AND b1.booking_time = b2.booking_time 
+                 AND b1.tenant_id = b2.tenant_id
+                 AND b1.id != b2.id
+WHERE b1.status != 'cancelled' AND b2.status != 'cancelled';
 ```
 
-#### Error: "Module not found"
+**Solutions:**
+1. **Database Constraints**:
+   ```sql
+   -- Add unique constraint
+   ALTER TABLE bookings 
+   ADD CONSTRAINT unique_booking_slot 
+   UNIQUE (tenant_id, booking_date, booking_time);
+   ```
+
+---
+
+### Admin Panel Issues
+
+#### Problem: Admin panel not loading
+**Solutions:**
+1. **Check Admin User Role**:
+   ```sql
+   -- Verify user has correct role
+   SELECT id, username, email, role FROM users WHERE role IN ('super_admin', 'tenant_admin');
+   
+   -- Update user role if needed
+   UPDATE users SET role = 'super_admin' WHERE email = 'admin@example.com';
+   ```
+
+---
+
+## Development Environment
+
+### Problem: Hot reload not working
 **Solutions:**
 ```bash
 # Clear Next.js cache
 rm -rf .next
+npm run dev
 
-# Reinstall dependencies
-npm install
-
-# Check for TypeScript issues
-npx tsc --noEmit
+# Check file watchers limit (Linux)
+echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
 ```
 
 ---
 
-### 3. Authentication Issues
+## Production Issues
 
-#### JWT Token Issues
-**Error: "Invalid token" or "Token verification failed"**
-
-**Check JWT Configuration**
+### Problem: 502 Bad Gateway errors
+**Diagnosis:**
 ```bash
-# Verify JWT_SECRET is set and long enough
-echo $JWT_SECRET  # Should be 32+ characters
+# Check if application is running
+ps aux | grep node
+
+# Check application logs
+pm2 logs jwt-auth-app
+
+# Check Nginx configuration
+sudo nginx -t
+sudo systemctl status nginx
 ```
 
-**Debug Token**
-```javascript
-// Add to API route for debugging
-console.log('Token:', token);
-console.log('JWT_SECRET:', process.env.JWT_SECRET);
-```
+---
 
-**Token Expiration**
-```bash
-# Check token expiration time
-grep JWT_EXPIRES_IN .env.local
-# Default is 24h, adjust if needed
-```
+## Performance Problems
 
-#### Login/Registration Fails
-**Check Password Hashing**
-```javascript
-// Test bcrypt manually
-const bcrypt = require('bcrypt');
-const test = async () => {
-  const hash = await bcrypt.hash('password123', 12);
-  console.log('Hash:', hash);
-  console.log('Valid:', await bcrypt.compare('password123', hash));
-};
-test();
-```
+### Problem: Slow page loads
+**Solutions:**
+1. **Database Optimization**:
+   ```sql
+   -- Add missing indexes
+   CREATE INDEX CONCURRENTLY idx_bookings_tenant_date ON bookings(tenant_id, booking_date);
+   CREATE INDEX CONCURRENTLY idx_users_tenant_active ON users(tenant_id, is_active);
+   ```
 
-**Database User Issues**
+---
+
+## Security Concerns
+
+### Problem: Suspicious login attempts
+**Diagnosis:**
 ```sql
--- Check if user exists
-SELECT * FROM users WHERE email = 'test@example.com';
-
--- Check user status
-SELECT username, email, is_active FROM users;
-
--- Reset user password (development only)
-UPDATE users SET password = '$2b$12$newhashedpassword' WHERE email = 'user@example.com';
-```
-
----
-
-### 4. Database Issues
-
-#### Migration Failures
-**Error: "relation already exists" or migration hangs**
-
-**Reset Database (Development)**
-```bash
-# WARNING: This deletes all data
-psql -U postgres -c "DROP DATABASE IF EXISTS auth_app;"
-psql -U postgres -c "CREATE DATABASE auth_app;"
-npm run db:migrate
-npm run db:seed
-```
-
-**Check Migration Status**
-```sql
--- Connect to database
-psql -U postgres -d auth_app
-
--- List all tables
-\dt
-
--- Check if tables have data
-SELECT COUNT(*) FROM users;
-SELECT COUNT(*) FROM booking_availability;
-```
-
-#### Seed Data Issues
-**Default Admin Not Created**
-```sql
--- Check if super admin exists
-SELECT * FROM users WHERE role = 'super_admin';
-
--- Manually create admin (development only)
-INSERT INTO users (username, email, password, role) 
-VALUES (
-  'super_admin', 
-  'admin@example.com',
-  '$2b$12$YourHashedPasswordHere',
-  'super_admin'
-);
-```
-
-#### Connection Pool Issues
-**Error: "too many clients already"**
-```javascript
-// Increase connection pool size in src/lib/db.ts
-const pool = new Pool({
-  // ... other config
-  max: 20,  // Increase if needed
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-});
-```
-
----
-
-### 5. Build and TypeScript Issues
-
-#### Build Failures
-**TypeScript Compilation Errors**
-```bash
-# Check TypeScript errors
-npx tsc --noEmit
-
-# Clear Next.js cache and rebuild
-rm -rf .next
-npm run build
-```
-
-**Common TypeScript Fixes**
-```typescript
-// Fix JWT payload types
-interface JWTPayload {
-  userId: number;
-  username: string;
-  email: string;
-  role?: string;
-  iat?: number;
-  exp?: number;
-}
-
-// Fix environment variable types
-declare global {
-  namespace NodeJS {
-    interface ProcessEnv {
-      JWT_SECRET: string;
-      DB_HOST: string;
-      DB_PASSWORD: string;
-      // ... other env vars
-    }
-  }
-}
-```
-
-#### ESLint Errors
-```bash
-# Fix common ESLint issues
-npm run lint -- --fix
-
-# Disable specific rules if needed (not recommended)
-// eslint-disable-next-line react/no-unescaped-entities
-```
-
----
-
-### 6. Environment Variables
-
-#### Variables Not Loading
-**Check File Location**
-```bash
-# Ensure .env.local exists in root directory
-ls -la .env*
-cat .env.local  # Verify content
-```
-
-**Next.js Environment Rules**
-- Variables starting with `NEXT_PUBLIC_` are available in browser
-- Other variables are server-side only
-- Restart application after changing variables
-
-**Debug Environment Variables**
-```javascript
-// Add to API route
-console.log('Environment:', {
-  NODE_ENV: process.env.NODE_ENV,
-  JWT_SECRET: process.env.JWT_SECRET ? 'SET' : 'NOT SET',
-  DB_HOST: process.env.DB_HOST,
-});
-```
-
----
-
-### 7. API Issues
-
-#### CORS Errors
-**Error: "Access-Control-Allow-Origin"**
-
-**Check Middleware Configuration**
-```typescript
-// In src/middleware.ts
-response.headers.set('Access-Control-Allow-Origin', 'http://localhost:3000');
-```
-
-**Development Workaround**
-```bash
-# Start browser with disabled security (development only)
-google-chrome --disable-web-security --user-data-dir="/tmp/chrome_dev"
-```
-
-#### API Routes Not Found
-**Check File Structure**
-```bash
-# Ensure API routes are in correct location
-find src/app/api -name "*.ts" -type f
-```
-
-**Route Naming**
-- Files must be named `route.ts` in App Router
-- Functions must be named after HTTP methods: `GET`, `POST`, etc.
-
----
-
-### 8. Performance Issues
-
-#### Slow Database Queries
-**Add Database Indexes**
-```sql
--- Analyze slow queries
-SELECT * FROM pg_stat_statements ORDER BY total_time DESC LIMIT 10;
-
--- Add missing indexes
-CREATE INDEX CONCURRENTLY idx_users_email ON users(email);
-CREATE INDEX CONCURRENTLY idx_bookings_user_id ON bookings(user_id);
-```
-
-#### High Memory Usage
-**Check for Memory Leaks**
-```javascript
-// Monitor memory usage
-setInterval(() => {
-  console.log('Memory:', process.memoryUsage());
-}, 10000);
-```
-
-**Optimize Database Connections**
-```javascript
-// Close connections properly
-export default async function handler(req, res) {
-  const client = await pool.connect();
-  try {
-    // ... your code
-  } finally {
-    client.release();  // Always release
-  }
-}
+-- Check recent login attempts
+SELECT 
+  username, 
+  COUNT(*) as attempts,
+  MAX(created_at) as last_attempt
+FROM admin_audit_log 
+WHERE action = 'login_failed' 
+AND created_at > NOW() - INTERVAL '1 hour'
+GROUP BY username
+ORDER BY attempts DESC;
 ```
 
 ---
@@ -394,146 +323,62 @@ export default async function handler(req, res) {
 ### Application Debugging
 ```javascript
 // Add debug logging
-const debug = require('debug')('app:auth');
-debug('User login attempt:', { email: user.email });
+const DEBUG = process.env.NODE_ENV === 'development';
 
-// Use Chrome DevTools
-node --inspect-brk=0.0.0.0:9229 node_modules/.bin/next dev
+function debugLog(message, data = null) {
+  if (DEBUG) {
+    console.log(`[DEBUG] ${new Date().toISOString()} - ${message}`, data);
+  }
+}
 ```
 
 ### Database Debugging
 ```sql
--- Enable query logging (development)
+-- Enable query logging
 ALTER SYSTEM SET log_statement = 'all';
 SELECT pg_reload_conf();
-
--- View recent queries
-SELECT query, state, query_start 
-FROM pg_stat_activity 
-WHERE datname = 'auth_app';
-```
-
-### Network Debugging
-```bash
-# Test API endpoints
-curl -v http://localhost:3000/api/health
-curl -X POST http://localhost:3000/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"identifier":"admin@example.com","password":"SuperAdmin123!"}'
 ```
 
 ---
 
-## Log Locations
+## Log Analysis
 
 ### Application Logs
 ```bash
-# Next.js development logs
-# Shown in terminal where npm run dev is running
+# PM2 logs
+pm2 logs jwt-auth-app --lines 100
 
-# PM2 logs (production)
-pm2 logs jwt-auth-app
-pm2 logs --lines 100
-
-# Docker logs
-docker logs container_name
-```
-
-### Database Logs
-```bash
-# PostgreSQL logs (varies by installation)
-# Ubuntu/Debian
-sudo tail -f /var/log/postgresql/postgresql-*-main.log
-
-# CentOS/RHEL
-sudo tail -f /var/lib/pgsql/data/pg_log/postgresql-*.log
-
-# macOS Homebrew
-tail -f /usr/local/var/log/postgres.log
-
-# Docker
-docker logs postgres-container
-```
-
-### System Logs
-```bash
 # System logs
-journalctl -u postgresql -f
 journalctl -u nginx -f
-
-# Application logs
-tail -f /var/log/app.log
+journalctl -u postgresql -f
 ```
 
 ---
 
-## Getting Help
+## Recovery Procedures
 
-### Information to Collect
-When asking for help, provide:
+### Database Recovery
+```bash
+# Backup current state
+pg_dump -h $DB_HOST -U $DB_USER $DB_NAME > emergency_backup_$(date +%Y%m%d_%H%M%S).sql
 
-1. **Environment Information**
-   ```bash
-   node --version
-   npm --version
-   npx next --version
-   cat /etc/os-release  # Linux
-   ```
+# Restore from backup
+psql -h $DB_HOST -U $DB_USER -d $DB_NAME < backup_file.sql
+```
 
-2. **Error Messages**
-   - Full error message and stack trace
-   - Browser console errors (if applicable)
-   - Server logs
+### Application Recovery
+```bash
+# Quick restart
+pm2 restart jwt-auth-app
 
-3. **Configuration**
-   ```bash
-   # Sanitized environment variables (remove passwords)
-   cat .env.local | sed 's/password.*/password=REDACTED/g'
-   ```
-
-4. **Steps to Reproduce**
-   - What you were trying to do
-   - Exact steps taken
-   - Expected vs actual behavior
-
-### Resources
-- [Next.js Documentation](https://nextjs.org/docs)
-- [PostgreSQL Documentation](https://www.postgresql.org/docs/)
-- [Node.js Debugging Guide](https://nodejs.org/en/docs/guides/debugging-getting-started/)
-- Application README.md file
-- API documentation (docs/API.md)
+# Full application reset
+pm2 stop jwt-auth-app
+rm -rf .next node_modules/.cache
+npm install
+npm run build
+pm2 start jwt-auth-app
+```
 
 ---
 
-## Emergency Procedures
-
-### Complete Reset (Development Only)
-```bash
-# WARNING: This deletes all data and reinstalls everything
-rm -rf node_modules package-lock.json .next
-psql -U postgres -c "DROP DATABASE IF EXISTS auth_app;"
-psql -U postgres -c "CREATE DATABASE auth_app;"
-npm install
-npm run db:migrate
-npm run db:seed
-npm run dev
-```
-
-### Backup Before Troubleshooting
-```bash
-# Backup database
-pg_dump -U postgres auth_app > backup_$(date +%Y%m%d_%H%M%S).sql
-
-# Backup configuration
-cp -r . ../jwt-auth-backup-$(date +%Y%m%d_%H%M%S)
-```
-
-### Recovery
-```bash
-# Restore database
-psql -U postgres -d auth_app < backup_file.sql
-
-# Restore files
-cp -r ../jwt-auth-backup-date/* ./
-npm install
-```
+This troubleshooting guide covers the most common issues in the Multi-Tenant Monastery Booking System. For additional help, refer to the [Architecture Documentation](./ARCHITECTURE.md), [User Guide](./USER_GUIDE.md), and [API Reference](./API.md).

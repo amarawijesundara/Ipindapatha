@@ -29,8 +29,9 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Get fresh user data
-    const user = await UserService.findById(payload.userId)
+    // Get fresh user data (with tenant context for tenant users, without for super admins)
+    const tenantId = payload.tenantId !== null && payload.tenantId !== undefined ? payload.tenantId : undefined
+    const user = await UserService.findById(payload.userId, tenantId)
     if (!user) {
       return NextResponse.json(
         {

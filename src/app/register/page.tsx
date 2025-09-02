@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/components/AuthContext'
 import { Container, Card, CardContent, CardHeader, CardTitle, Input, Button } from '@/components/ui'
 
@@ -39,9 +39,31 @@ export default function Register() {
   const [passwordStrength, setPasswordStrength] = useState(checkPasswordStrength(''))
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [pendingBooking, setPendingBooking] = useState<any>(null)
   
   const { register, error } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  
+  useEffect(() => {
+    // Check for pending booking data and pre-fill form if available
+    const bookingData = localStorage.getItem('pendingBooking')
+    if (bookingData) {
+      try {
+        const parsed = JSON.parse(bookingData)
+        setPendingBooking(parsed)
+        // Pre-fill form with guest data
+        setFormData(prev => ({
+          ...prev,
+          username: parsed.name || '',
+          email: parsed.email || ''
+        }))
+      } catch (error) {
+        console.error('Error parsing pending booking data:', error)
+        localStorage.removeItem('pendingBooking')
+      }
+    }
+  }, [])
 
   // Real-time validation
   useEffect(() => {
@@ -111,7 +133,15 @@ export default function Register() {
 
     try {
       await register(formData.username, formData.email, formData.password)
-      router.push('/dashboard')
+      
+      // If there's a pending booking, redirect to home with the date selected
+      if (pendingBooking) {
+        const redirectUrl = searchParams.get('redirect') || '/'
+        router.push(redirectUrl)
+        // The home page will handle the pending booking completion
+      } else {
+        router.push('/dashboard')
+      }
     } catch (error) {
       console.error('Registration failed:', error)
     } finally {
@@ -137,17 +167,32 @@ export default function Register() {
               <span className="text-white font-bold text-xl">🏛️</span>
             </div>
             <h1 className="text-3xl font-bold text-monastery-800 mb-2">
-              Join Our Monastery
+              {pendingBooking ? 'Create Account to Complete Booking' : 'Join Our Monastery'}
             </h1>
             <p className="text-monastery-600">
-              Create your account to book Dhane offerings
+              {pendingBooking 
+                ? `Complete your Dhane offering booking for ${pendingBooking.name}`
+                : 'Create your account to book Dhane offerings'
+              }
             </p>
           </div>
 
           {/* Registration Form */}
           <Card className="slide-up border-monastery-200 bg-white shadow-large">
             <CardHeader>
-              <CardTitle className="text-center text-monastery-800">Create Account</CardTitle>
+              <CardTitle className="text-center text-monastery-800">
+                {pendingBooking ? 'Create Account to Complete Your Booking' : 'Create Account'}
+              </CardTitle>
+              {pendingBooking && (
+                <div className="bg-lotus-100 rounded-lg p-3 mt-4">
+                  <h4 className="font-medium text-monastery-800 mb-1">Your Booking Details</h4>
+                  <div className="space-y-1 text-sm text-monastery-700">
+                    <div><strong>Date:</strong> {new Date(pendingBooking.date).toLocaleDateString()}</div>
+                    <div><strong>Time:</strong> {pendingBooking.time}</div>
+                    <div><strong>Name:</strong> {pendingBooking.name}</div>
+                  </div>
+                </div>
+              )}
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-6">

@@ -3,41 +3,40 @@ import prisma from './db'
 import { User, UserCreateInput } from '@/types'
 
 export class UserService {
-  // Find user by email or username within tenant context
+  // Find user by email or username (simplified for basic auth)
   static async findByEmailOrUsername(identifier: string, tenantId?: number): Promise<User | null> {
     try {
-      const whereCondition: any = {
-        OR: [
-          { email: identifier },
-          { username: identifier }
-        ],
-        isActive: true
-      }
-
-      // If tenantId is provided, scope to tenant; otherwise allow global search for super admins
-      if (tenantId !== undefined) {
-        whereCondition.tenantId = tenantId
-      }
-
+      // Search for any active user (super admin or regular user)
       const user = await prisma.user.findFirst({
-        where: whereCondition
+        where: {
+          OR: [
+            { email: identifier },
+            { username: identifier }
+          ],
+          isActive: true,
+          // For simplified auth, we can search across all users
+          // Super admins have tenantId: null, regular users have tenantId
+          ...(tenantId !== undefined ? { tenantId: tenantId } : {})
+        }
       })
-      
-      if (!user) return null
-      
-      return {
-        id: user.id,
-        tenant_id: user.tenantId || undefined,
-        username: user.username,
-        email: user.email,
-        password: user.password,
-        role: user.role as 'user' | 'admin' | 'super_admin' | 'tenant_admin' | 'tenant_manager',
-        phone_number: user.phoneNumber || undefined,
-        address: user.address || undefined,
-        is_active: user.isActive,
-        created_at: user.createdAt,
-        updated_at: user.updatedAt
+
+      if (user) {
+        return {
+          id: user.id,
+          tenant_id: user.tenantId || undefined,
+          username: user.username,
+          email: user.email,
+          password: user.password,
+          role: user.role as 'user' | 'admin' | 'super_admin' | 'tenant_admin' | 'tenant_manager',
+          phone_number: user.phoneNumber || undefined,
+          address: user.address || undefined,
+          is_active: user.isActive,
+          created_at: user.createdAt,
+          updated_at: user.updatedAt
+        }
       }
+
+      return null
     } catch (error) {
       console.error('Error finding user:', error)
       return null

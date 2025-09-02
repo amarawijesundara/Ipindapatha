@@ -30,12 +30,16 @@ export async function GET(request: NextRequest) {
     }
 
     // Verify user still exists and is active
-    const user = await UserService.findById(payload.userId)
+    // For super admins, we don't need tenant context (they have tenantId: null)
+    // For tenant users, we should pass the tenant context from the token
+    const tenantId = payload.tenantId !== null && payload.tenantId !== undefined ? payload.tenantId : undefined
+    const user = await UserService.findById(payload.userId, tenantId)
+    
     if (!user) {
       return NextResponse.json(
         {
           error: 'User not found',
-          message: 'User account no longer exists'
+          message: 'User account no longer exists or is not accessible'
         },
         { status: 404 }
       )

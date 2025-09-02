@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { UserService } from '@/lib/auth'
-import { TenantService } from '@/lib/tenant'
 import { generateToken } from '@/lib/jwt'
 
 export async function POST(request: NextRequest) {
@@ -29,30 +28,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get tenant context from middleware headers
-    const tenantIdHeader = request.headers.get('x-tenant-id')
-    const tenantSubdomain = request.headers.get('x-tenant-subdomain')
-    
-    let tenantId: number | undefined
-    let tenant = null
-
-    if (tenantIdHeader) {
-      tenantId = parseInt(tenantIdHeader)
-      tenant = await TenantService.findBySubdomain(tenantSubdomain!)
-      
-      if (!tenant || !tenant.is_active) {
-        return NextResponse.json(
-          {
-            error: 'Invalid tenant',
-            message: 'The tenant is not found or inactive'
-          },
-          { status: 404 }
-        )
-      }
-    }
-
-    // Check if user already exists within tenant scope
-    const existingUser = await UserService.findByEmailOrUsername(email, tenantId)
+    // Check if user already exists (simplified)
+    const existingUser = await UserService.findByEmailOrUsername(email)
     if (existingUser) {
       return NextResponse.json(
         {
@@ -63,13 +40,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Validate role assignment
+    // Validate role assignment (simplified)
     const allowedRoles = ['user']
-    if (tenantId) {
-      // For tenant users, allow tenant-specific roles
-      allowedRoles.push('tenant_manager')
-    }
-    
     if (!allowedRoles.includes(role)) {
       return NextResponse.json(
         {
@@ -80,13 +52,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create new user
+    // Create new user (simplified)
     const user = await UserService.create({ 
       username, 
       email, 
       password, 
-      role,
-      tenant_id: tenantId
+      role
     })
     
     if (!user) {
@@ -99,25 +70,33 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Generate JWT token with tenant context
+    // Generate JWT token (simplified)
     const token = generateToken({
       userId: user.id,
       username: user.username,
       email: user.email,
-      role: user.role,
-      tenantId: user.tenant_id,
-      subdomain: tenantSubdomain || undefined
+      role: user.role
     })
 
-    return NextResponse.json(
+    // Create response and set httpOnly cookie
+    const response = NextResponse.json(
       {
         message: 'User registered successfully',
-        user: UserService.toJSON(user),
-        tenant,
-        token
+        user: UserService.toJSON(user)
       },
       { status: 201 }
     )
+
+    // Set httpOnly cookie for JWT token
+    response.cookies.set('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24, // 24 hours
+      path: '/'
+    })
+
+    return response
 
   } catch (error) {
     console.error('Registration error:', error)

@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/components/AuthContext'
 import { Container, Card, CardContent, CardHeader, CardTitle, Input, Button } from '@/components/ui'
 
@@ -12,9 +12,25 @@ export default function Login() {
     password: '',
   })
   const [isLoading, setIsLoading] = useState(false)
+  const [pendingBooking, setPendingBooking] = useState<any>(null)
   
   const { login, error } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  
+  useEffect(() => {
+    // Check for pending booking data
+    const bookingData = localStorage.getItem('pendingBooking')
+    if (bookingData) {
+      try {
+        const parsed = JSON.parse(bookingData)
+        setPendingBooking(parsed)
+      } catch (error) {
+        console.error('Error parsing pending booking data:', error)
+        localStorage.removeItem('pendingBooking')
+      }
+    }
+  }, [])
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -29,7 +45,15 @@ export default function Login() {
 
     try {
       await login(formData.identifier, formData.password)
-      router.push('/dashboard')
+      
+      // If there's a pending booking, redirect to home with the date selected
+      if (pendingBooking) {
+        const redirectUrl = searchParams.get('redirect') || '/'
+        router.push(redirectUrl)
+        // The home page will handle the pending booking completion
+      } else {
+        router.push('/dashboard')
+      }
     } catch (error) {
       console.error('Login failed:', error)
     } finally {
@@ -44,20 +68,35 @@ export default function Login() {
           {/* Header */}
           <div className="text-center mb-8">
             <div className="w-16 h-16 bg-gradient-to-br from-primary-600 to-primary-700 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <span className="text-white font-bold text-xl">JA</span>
+              <span className="text-white font-bold text-xl">🏛️</span>
             </div>
             <h1 className="text-3xl font-bold text-secondary-900 mb-2">
-              Welcome back
+              {pendingBooking ? 'Sign In to Complete Booking' : 'Welcome back'}
             </h1>
             <p className="text-secondary-600">
-              Sign in to your account to continue
+              {pendingBooking 
+                ? `Complete your Dhane offering booking for ${pendingBooking.name}`
+                : 'Sign in to your account to continue'
+              }
             </p>
           </div>
 
           {/* Login Form */}
           <Card className="slide-up">
             <CardHeader>
-              <CardTitle className="text-center">Sign In</CardTitle>
+              <CardTitle className="text-center">
+                {pendingBooking ? 'Sign In to Complete Your Booking' : 'Sign In'}
+              </CardTitle>
+              {pendingBooking && (
+                <div className="bg-lotus-100 rounded-lg p-3 mt-4">
+                  <h4 className="font-medium text-monastery-800 mb-1">Your Booking Details</h4>
+                  <div className="space-y-1 text-sm text-monastery-700">
+                    <div><strong>Date:</strong> {new Date(pendingBooking.date).toLocaleDateString()}</div>
+                    <div><strong>Time:</strong> {pendingBooking.time}</div>
+                    <div><strong>Name:</strong> {pendingBooking.name}</div>
+                  </div>
+                </div>
+              )}
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-6">

@@ -28,6 +28,20 @@ export default function TenantsPage() {
   const [tenants, setTenants] = useState<Tenant[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
+  const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [createLoading, setCreateLoading] = useState(false)
+  const [editLoading, setEditLoading] = useState(false)
+  const [createForm, setCreateForm] = useState({
+    name: '',
+    subdomain: '',
+    domain: '',
+    description: '',
+    plan: 'basic',
+    maxUsers: 10,
+    maxBookings: 1000
+  })
 
   useEffect(() => {
     fetchTenants()
@@ -85,6 +99,95 @@ export default function TenantsPage() {
       console.error('Failed to update tenant status:', error)
     } finally {
       setActionLoading(null)
+    }
+  }
+
+  const handleCreateTenant = async () => {
+    setCreateLoading(true)
+    
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) return
+
+      const response = await fetch('/api/admin/tenants', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(createForm)
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        // Add new tenant to list
+        setTenants(prev => [data.tenant, ...prev])
+        setShowCreateModal(false)
+        // Reset form
+        setCreateForm({
+          name: '',
+          subdomain: '',
+          domain: '',
+          description: '',
+          plan: 'basic',
+          maxUsers: 10,
+          maxBookings: 1000
+        })
+      } else {
+        const error = await response.json()
+        alert(`Failed to create tenant: ${error.message}`)
+      }
+    } catch (error) {
+      console.error('Failed to create tenant:', error)
+      alert('Failed to create tenant')
+    } finally {
+      setCreateLoading(false)
+    }
+  }
+
+  const handleEditTenant = async () => {
+    if (!selectedTenant) return
+    
+    setEditLoading(true)
+    
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) return
+
+      const response = await fetch(`/api/admin/tenants/${selectedTenant.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: selectedTenant.name,
+          domain: selectedTenant.domain,
+          description: selectedTenant.description
+        })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        // Update tenant in list
+        setTenants(prev => 
+          prev.map(t => 
+            t.id === selectedTenant.id 
+              ? { ...t, ...data.tenant }
+              : t
+          )
+        )
+        setShowEditModal(false)
+        setSelectedTenant(null)
+      } else {
+        const error = await response.json()
+        alert(`Failed to update tenant: ${error.message}`)
+      }
+    } catch (error) {
+      console.error('Failed to update tenant:', error)
+      alert('Failed to update tenant')
+    } finally {
+      setEditLoading(false)
     }
   }
 
@@ -200,8 +303,8 @@ export default function TenantsPage() {
             size="sm"
             variant="outline"
             onClick={() => {
-              // TODO: Implement edit functionality
-              console.log('Edit tenant:', tenant.id)
+              setSelectedTenant(tenant)
+              setShowEditModal(true)
             }}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -211,10 +314,7 @@ export default function TenantsPage() {
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => {
-              // TODO: Implement view details functionality
-              console.log('View tenant details:', tenant.id)
-            }}
+            onClick={() => setSelectedTenant(tenant)}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -253,10 +353,7 @@ export default function TenantsPage() {
             {tenants.length} tenant{tenants.length !== 1 ? 's' : ''} total
           </div>
           <Button
-            onClick={() => {
-              // TODO: Implement create tenant functionality
-              console.log('Create new tenant')
-            }}
+            onClick={() => setShowCreateModal(true)}
           >
             <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -298,11 +395,378 @@ export default function TenantsPage() {
         columns={columns}
         searchPlaceholder="Search tenants by name or subdomain..."
         emptyMessage="No tenants found. Create your first tenant to get started."
-        onRowClick={(tenant) => {
-          // TODO: Implement tenant details view
-          console.log('View tenant:', tenant.name)
-        }}
+        onRowClick={(tenant) => setSelectedTenant(tenant)}
       />
+
+      {/* Create Tenant Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
+            <div className="p-6 border-b border-monastery-200">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-monastery-800">Create New Tenant</h2>
+                <button
+                  onClick={() => setShowCreateModal(false)}
+                  className="text-monastery-500 hover:text-monastery-700"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-monastery-800 mb-1">
+                  Tenant Name *
+                </label>
+                <input
+                  type="text"
+                  value={createForm.name}
+                  onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
+                  className="w-full px-3 py-2 border border-monastery-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="Enter tenant name"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-monastery-800 mb-1">
+                  Subdomain *
+                </label>
+                <input
+                  type="text"
+                  value={createForm.subdomain}
+                  onChange={(e) => setCreateForm({ ...createForm, subdomain: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
+                  className="w-full px-3 py-2 border border-monastery-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="tenant-subdomain"
+                />
+                <p className="text-xs text-monastery-600 mt-1">Only lowercase letters, numbers, and hyphens allowed</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-monastery-800 mb-1">
+                  Custom Domain (optional)
+                </label>
+                <input
+                  type="text"
+                  value={createForm.domain}
+                  onChange={(e) => setCreateForm({ ...createForm, domain: e.target.value })}
+                  className="w-full px-3 py-2 border border-monastery-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="custom-domain.com"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-monastery-800 mb-1">
+                  Description
+                </label>
+                <textarea
+                  value={createForm.description}
+                  onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
+                  className="w-full px-3 py-2 border border-monastery-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  rows={3}
+                  placeholder="Brief description of the tenant"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-monastery-800 mb-1">
+                    Subscription Plan
+                  </label>
+                  <select
+                    value={createForm.plan}
+                    onChange={(e) => setCreateForm({ ...createForm, plan: e.target.value })}
+                    className="w-full px-3 py-2 border border-monastery-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="basic">Basic</option>
+                    <option value="professional">Professional</option>
+                    <option value="enterprise">Enterprise</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-monastery-800 mb-1">
+                    Max Users
+                  </label>
+                  <input
+                    type="number"
+                    value={createForm.maxUsers}
+                    onChange={(e) => setCreateForm({ ...createForm, maxUsers: parseInt(e.target.value) })}
+                    className="w-full px-3 py-2 border border-monastery-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    min="1"
+                    max="10000"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-monastery-200 bg-monastery-50 rounded-b-xl">
+              <div className="flex justify-end space-x-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowCreateModal(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleCreateTenant}
+                  loading={createLoading}
+                  disabled={!createForm.name || !createForm.subdomain}
+                >
+                  Create Tenant
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Tenant Modal */}
+      {showEditModal && selectedTenant && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
+            <div className="p-6 border-b border-monastery-200">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-monastery-800">Edit Tenant</h2>
+                <button
+                  onClick={() => {
+                    setShowEditModal(false)
+                    setSelectedTenant(null)
+                  }}
+                  className="text-monastery-500 hover:text-monastery-700"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-monastery-800 mb-1">
+                  Tenant Name
+                </label>
+                <input
+                  type="text"
+                  value={selectedTenant.name}
+                  onChange={(e) => setSelectedTenant({ ...selectedTenant, name: e.target.value })}
+                  className="w-full px-3 py-2 border border-monastery-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-monastery-800 mb-1">
+                  Subdomain (readonly)
+                </label>
+                <input
+                  type="text"
+                  value={selectedTenant.subdomain}
+                  readOnly
+                  className="w-full px-3 py-2 border border-monastery-200 rounded-lg bg-monastery-50 text-monastery-600"
+                />
+                <p className="text-xs text-monastery-600 mt-1">Subdomain cannot be changed after creation</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-monastery-800 mb-1">
+                  Custom Domain
+                </label>
+                <input
+                  type="text"
+                  value={selectedTenant.domain || ''}
+                  onChange={(e) => setSelectedTenant({ ...selectedTenant, domain: e.target.value })}
+                  className="w-full px-3 py-2 border border-monastery-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-monastery-800 mb-1">
+                  Description
+                </label>
+                <textarea
+                  value={selectedTenant.description || ''}
+                  onChange={(e) => setSelectedTenant({ ...selectedTenant, description: e.target.value })}
+                  className="w-full px-3 py-2 border border-monastery-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  rows={3}
+                />
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-monastery-200 bg-monastery-50 rounded-b-xl">
+              <div className="flex justify-end space-x-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowEditModal(false)
+                    setSelectedTenant(null)
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleEditTenant}
+                  loading={editLoading}
+                >
+                  Save Changes
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tenant Details Modal */}
+      {selectedTenant && !showEditModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-monastery-200">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-monastery-800">Tenant Details</h2>
+                <button
+                  onClick={() => setSelectedTenant(null)}
+                  className="text-monastery-500 hover:text-monastery-700"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              {/* Basic Information */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-monastery-600 mb-1">Tenant Name</label>
+                  <div className="text-monastery-800 font-medium">{selectedTenant.name}</div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-monastery-600 mb-1">Subdomain</label>
+                  <div className="font-mono text-sm text-monastery-800">{selectedTenant.subdomain}</div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-monastery-600 mb-1">Custom Domain</label>
+                  <div className="text-monastery-800">{selectedTenant.domain || 'Not set'}</div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-monastery-600 mb-1">Status</label>
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    selectedTenant.is_active 
+                      ? 'bg-success-100 text-success-800' 
+                      : 'bg-error-100 text-error-800'
+                  }`}>
+                    {selectedTenant.is_active ? 'Active' : 'Inactive'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Description */}
+              {selectedTenant.description && (
+                <div>
+                  <label className="block text-sm font-medium text-monastery-600 mb-1">Description</label>
+                  <div className="text-monastery-800 bg-monastery-50 rounded-lg p-3">
+                    {selectedTenant.description}
+                  </div>
+                </div>
+              )}
+
+              {/* Statistics */}
+              <div>
+                <label className="block text-sm font-medium text-monastery-600 mb-2">Statistics</label>
+                <div className="bg-monastery-50 rounded-lg p-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-primary-600">{selectedTenant.stats.total_users}</div>
+                      <div className="text-sm text-monastery-600">Total Users</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-success-600">{selectedTenant.stats.total_bookings}</div>
+                      <div className="text-sm text-monastery-600">Total Bookings</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-monastery-800">
+                        {Math.floor((new Date().getTime() - new Date(selectedTenant.created_at).getTime()) / (1000 * 60 * 60 * 24))}
+                      </div>
+                      <div className="text-sm text-monastery-600">Days Active</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Subscription Information */}
+              {selectedTenant.subscription && (
+                <div>
+                  <label className="block text-sm font-medium text-monastery-600 mb-2">Subscription</label>
+                  <div className="bg-monastery-50 rounded-lg p-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <div className="text-sm text-monastery-600">Plan</div>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          selectedTenant.subscription.plan === 'enterprise' ? 'bg-primary-100 text-primary-800' :
+                          selectedTenant.subscription.plan === 'professional' ? 'bg-success-100 text-success-800' :
+                          'bg-monastery-100 text-monastery-800'
+                        }`}>
+                          {selectedTenant.subscription.plan}
+                        </span>
+                      </div>
+                      <div>
+                        <div className="text-sm text-monastery-600">Status</div>
+                        <div className="font-medium text-monastery-800">{selectedTenant.subscription.status}</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-monastery-600">Limits</div>
+                        <div className="text-sm text-monastery-800">
+                          {selectedTenant.subscription.max_users} users, {selectedTenant.subscription.max_bookings} bookings
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Timestamps */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div>
+                  <label className="block text-sm font-medium text-monastery-600 mb-1">Created</label>
+                  <div className="text-monastery-800">{new Date(selectedTenant.created_at).toLocaleString()}</div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-monastery-600 mb-1">Last Updated</label>
+                  <div className="text-monastery-800">{new Date(selectedTenant.updated_at).toLocaleString()}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-monastery-200 bg-monastery-50 rounded-b-xl">
+              <div className="flex justify-between items-center">
+                <div className="text-sm text-monastery-600">
+                  Tenant ID: #{selectedTenant.id}
+                </div>
+                <div className="flex space-x-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setShowEditModal(true)
+                    }}
+                  >
+                    Edit Tenant
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setSelectedTenant(null)}
+                  >
+                    Close
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

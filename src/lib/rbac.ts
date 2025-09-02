@@ -121,7 +121,7 @@ export const withRBAC = (options: RBACOptions = {}) => {
       }
       
       requestWithAuth.user = payload
-      requestWithAuth.tenantId = payload.tenantId
+      requestWithAuth.tenantId = payload.tenantId !== null && payload.tenantId !== undefined ? payload.tenantId : undefined
 
       // Call the protected handler
       return await handler(requestWithAuth)

@@ -23,11 +23,30 @@ export default function SettingsPage() {
     setLoading(true)
     
     try {
-      // TODO: Implement settings save functionality
-      await new Promise(resolve => setTimeout(resolve, 1000)) // Simulate API call
-      console.log('Settings saved:', settings)
+      const token = localStorage.getItem('token')
+      if (!token) {
+        alert('Please login to save settings')
+        return
+      }
+
+      const response = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ settings })
+      })
+
+      if (response.ok) {
+        alert('Settings saved successfully!')
+      } else {
+        const error = await response.json()
+        alert(`Failed to save settings: ${error.message}`)
+      }
     } catch (error) {
       console.error('Failed to save settings:', error)
+      alert('Failed to save settings')
     } finally {
       setLoading(false)
     }

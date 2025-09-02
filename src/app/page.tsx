@@ -11,14 +11,28 @@ export default function Home() {
   const { user } = useAuth()
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [showBookingModal, setShowBookingModal] = useState(false)
+  
+  useEffect(() => {
+    // Check for pending booking after authentication
+    if (user) {
+      const pendingBooking = localStorage.getItem('pendingBooking')
+      if (pendingBooking) {
+        try {
+          const bookingData = JSON.parse(pendingBooking)
+          // Set the selected date and open booking modal
+          setSelectedDate(new Date(bookingData.date))
+          setShowBookingModal(true)
+        } catch (error) {
+          console.error('Error parsing pending booking:', error)
+          localStorage.removeItem('pendingBooking')
+        }
+      }
+    }
+  }, [user])
 
   const handleDateSelect = (date: Date) => {
-    if (!user) {
-      // Redirect to login if not authenticated
-      window.location.href = '/login'
-      return
-    }
-    
+    // Allow both guests and authenticated users to select dates
+    // The booking modal will handle authentication flow
     setSelectedDate(date)
     setShowBookingModal(true)
   }

@@ -8,16 +8,21 @@ async function seed() {
   try {
     console.log('Starting database seeding...')
     
-    // Check if super admin exists
+    // Check if our specific seeded super admin exists (super admin has tenantId: null)
     const existingAdmin = await prisma.user.findFirst({
-      where: { role: 'super_admin' }
+      where: { 
+        email: 'admin@example.com',
+        role: 'super_admin',
+        tenantId: null
+      }
     })
 
+    const hashedPassword = await bcrypt.hash('SuperAdmin123!', 12)
+
     if (!existingAdmin) {
-      const hashedPassword = await bcrypt.hash('SuperAdmin123!', 12)
-      
       await prisma.user.create({
         data: {
+          tenantId: null, // Super admin is not associated with any tenant
           username: 'super_admin',
           email: 'admin@example.com',
           password: hashedPassword,
@@ -27,11 +32,41 @@ async function seed() {
       
       console.log('Default super admin created: admin@example.com / SuperAdmin123!')
     } else {
-      console.log('Super admin already exists, skipping creation')
+      // Update existing super admin password to ensure it's correct
+      await prisma.user.update({
+        where: { id: existingAdmin.id },
+        data: { 
+          password: hashedPassword,
+          updatedAt: new Date()
+        }
+      })
+      
+      console.log('Super admin password updated: admin@example.com / SuperAdmin123!')
     }
 
-    // Check if availability data exists
-    const existingAvailability = await prisma.bookingAvailability.count()
+    // Create a default demo tenant for testing
+    let demoTenant = await prisma.tenant.findFirst({
+      where: { subdomain: 'demo' }
+    })
+
+    if (!demoTenant) {
+      demoTenant = await prisma.tenant.create({
+        data: {
+          name: 'Demo Company',
+          subdomain: 'demo',
+          description: 'Demo tenant for testing',
+          isActive: true
+        }
+      })
+      console.log('Demo tenant created: demo.localhost')
+    } else {
+      console.log('Demo tenant already exists, skipping creation')
+    }
+
+    // Check if availability data exists for demo tenant
+    const existingAvailability = await prisma.bookingAvailability.count({
+      where: { tenantId: demoTenant.id }
+    })
 
     if (existingAvailability === 0) {
       const timeSlots = ['09:00:00', '10:00:00', '11:00:00', '14:00:00', '15:00:00', '16:00:00', '17:00:00']
@@ -49,6 +84,7 @@ async function seed() {
         for (const timeSlot of timeSlots) {
           const timeSlotDate = new Date(`1970-01-01T${timeSlot}`)
           availabilityData.push({
+            tenantId: demoTenant.id, // Associate with demo tenant
             date: date,
             timeSlot: timeSlotDate,
             isAvailable: true,
@@ -61,9 +97,9 @@ async function seed() {
         data: availabilityData
       })
       
-      console.log('Default availability seeded for next 30 days (weekdays only)')
+      console.log('Default availability seeded for demo tenant (next 30 days, weekdays only)')
     } else {
-      console.log('Availability data already exists, skipping seeding')
+      console.log('Availability data already exists for demo tenant, skipping seeding')
     }
     
     console.log('Database seeding completed successfully!')

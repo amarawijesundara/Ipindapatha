@@ -27,6 +27,7 @@ export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
+  const [selectedUser, setSelectedUser] = useState<User | null>(null)
 
   useEffect(() => {
     fetchUsers()
@@ -254,10 +255,7 @@ export default function UsersPage() {
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => {
-              // TODO: Implement view user details functionality
-              console.log('View user details:', user.id)
-            }}
+            onClick={() => setSelectedUser(user)}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -333,11 +331,160 @@ export default function UsersPage() {
         columns={columns}
         searchPlaceholder="Search users by name, email, or tenant..."
         emptyMessage="No users found."
-        onRowClick={(user) => {
-          // TODO: Implement user details view
-          console.log('View user:', user.username)
-        }}
+        onRowClick={(user) => setSelectedUser(user)}
       />
+
+      {/* User Details Modal */}
+      {selectedUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-monastery-200">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-monastery-800">User Details</h2>
+                <button
+                  onClick={() => setSelectedUser(null)}
+                  className="text-monastery-500 hover:text-monastery-700"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              {/* Basic Information */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-monastery-600 mb-1">Username</label>
+                  <div className="text-monastery-800 font-medium">{selectedUser.username}</div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-monastery-600 mb-1">Email</label>
+                  <div className="text-monastery-800">{selectedUser.email}</div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-monastery-600 mb-1">Phone Number</label>
+                  <div className="text-monastery-800">{selectedUser.phone_number || 'Not provided'}</div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-monastery-600 mb-1">Role</label>
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getRoleColor(selectedUser.role)}`}>
+                    {selectedUser.role.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                  </span>
+                </div>
+              </div>
+
+              {/* Tenant Information */}
+              {selectedUser.tenant && (
+                <div>
+                  <label className="block text-sm font-medium text-monastery-600 mb-2">Tenant</label>
+                  <div className="bg-monastery-50 rounded-lg p-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <div className="text-sm text-monastery-600">Name</div>
+                        <div className="font-medium text-monastery-800">{selectedUser.tenant.name}</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-monastery-600">Subdomain</div>
+                        <div className="font-mono text-sm text-monastery-800">{selectedUser.tenant.subdomain}</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-monastery-600">Tenant Status</div>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          selectedUser.tenant.is_active 
+                            ? 'bg-success-100 text-success-800' 
+                            : 'bg-error-100 text-error-800'
+                        }`}>
+                          {selectedUser.tenant.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Address */}
+              {selectedUser.address && (
+                <div>
+                  <label className="block text-sm font-medium text-monastery-600 mb-1">Address</label>
+                  <div className="text-monastery-800 bg-monastery-50 rounded-lg p-3">
+                    {selectedUser.address}
+                  </div>
+                </div>
+              )}
+
+              {/* Statistics */}
+              <div>
+                <label className="block text-sm font-medium text-monastery-600 mb-2">Statistics</label>
+                <div className="bg-monastery-50 rounded-lg p-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-success-600">{selectedUser.stats.total_bookings}</div>
+                      <div className="text-sm text-monastery-600">Total Bookings</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-monastery-800">
+                        {new Date(selectedUser.created_at).toLocaleDateString()}
+                      </div>
+                      <div className="text-sm text-monastery-600">Member Since</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-monastery-800">
+                        {Math.floor((new Date().getTime() - new Date(selectedUser.created_at).getTime()) / (1000 * 60 * 60 * 24))}
+                      </div>
+                      <div className="text-sm text-monastery-600">Days Active</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Account Status */}
+              <div>
+                <label className="block text-sm font-medium text-monastery-600 mb-2">Account Status</label>
+                <div className="flex items-center space-x-4">
+                  <span className={`px-3 py-2 rounded-full text-sm font-medium ${
+                    selectedUser.is_active 
+                      ? 'bg-success-100 text-success-800' 
+                      : 'bg-error-100 text-error-800'
+                  }`}>
+                    {selectedUser.is_active ? 'Active Account' : 'Inactive Account'}
+                  </span>
+                  <div className="text-sm text-monastery-600">
+                    Last Updated: {new Date(selectedUser.updated_at).toLocaleString()}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-monastery-200 bg-monastery-50 rounded-b-xl">
+              <div className="flex justify-between items-center">
+                <div className="text-sm text-monastery-600">
+                  User ID: #{selectedUser.id}
+                </div>
+                <div className="flex space-x-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      // TODO: Implement edit user functionality
+                      console.log('Edit user:', selectedUser.id)
+                    }}
+                  >
+                    Edit User
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setSelectedUser(null)}
+                  >
+                    Close
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

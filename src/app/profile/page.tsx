@@ -59,11 +59,8 @@ export default function ProfilePage() {
 
   const fetchBookings = async () => {
     try {
-      const token = localStorage.getItem('token')
-      if (!token) return
-
       const response = await fetch('/api/bookings', {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include', // Use cookies for authentication
       })
 
       if (response.ok) {
@@ -82,18 +79,12 @@ export default function ProfilePage() {
     setError('')
 
     try {
-      const token = localStorage.getItem('token')
-      if (!token) {
-        setError('No authentication token found')
-        return
-      }
-
       const response = await fetch('/api/auth/profile', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
         },
+        credentials: 'include', // Use cookies for authentication
         body: JSON.stringify(profileData)
       })
 
@@ -131,18 +122,12 @@ export default function ProfilePage() {
     setError('')
 
     try {
-      const token = localStorage.getItem('token')
-      if (!token) {
-        setError('No authentication token found')
-        return
-      }
-
       const response = await fetch('/api/auth/password', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
         },
+        credentials: 'include', // Use cookies for authentication
         body: JSON.stringify({
           currentPassword: passwordData.currentPassword,
           newPassword: passwordData.newPassword

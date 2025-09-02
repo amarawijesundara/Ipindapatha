@@ -88,6 +88,45 @@ async function migrate() {
     await pool.query('CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id)')
     await pool.query('CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token ON refresh_tokens(token)')
     
+    // Create platform_settings table for admin settings
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS platform_settings (
+        id SERIAL PRIMARY KEY,
+        setting_key VARCHAR(100) UNIQUE NOT NULL,
+        setting_value TEXT NOT NULL,
+        setting_type VARCHAR(20) NOT NULL CHECK (setting_type IN ('string', 'number', 'boolean')),
+        is_active BOOLEAN DEFAULT true,
+        updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+    
+    // Create indexes for platform_settings table
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_platform_settings_key ON platform_settings(setting_key)')
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_platform_settings_active ON platform_settings(is_active)')
+    
+    // Create admin_audit_log table for tracking admin actions
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS admin_audit_log (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        action VARCHAR(100) NOT NULL,
+        target_type VARCHAR(50) NOT NULL,
+        target_id INTEGER,
+        details JSONB,
+        ip_address INET,
+        user_agent TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+    
+    // Create indexes for admin_audit_log table
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_audit_log_user_id ON admin_audit_log(user_id)')
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_audit_log_action ON admin_audit_log(action)')
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_audit_log_target ON admin_audit_log(target_type, target_id)')
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON admin_audit_log(created_at)')
+    
     // Create trigger for updated_at columns
     await pool.query(`
       CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -119,6 +158,58 @@ async function migrate() {
       DROP TRIGGER IF EXISTS update_availability_updated_at ON booking_availability;
       CREATE TRIGGER update_availability_updated_at
         BEFORE UPDATE ON booking_availability
+        FOR EACH ROW
+        EXECUTE FUNCTION update_updated_at_column()
+    `)
+    
+    await pool.query(`
+      DROP TRIGGER IF EXISTS update_platform_settings_updated_at ON platform_settings;
+      CREATE TRIGGER update_platform_settings_updated_at
+        BEFORE UPDATE ON platform_settings
+        FOR EACH ROW
+        EXECUTE FUNCTION update_updated_at_column()
+    `)
+    
+    // Create recurring_bookings table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS recurring_bookings (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        booking_month INTEGER NOT NULL CHECK (booking_month >= 1 AND booking_month <= 12),
+        booking_day INTEGER NOT NULL CHECK (booking_day >= 1 AND booking_day <= 31),
+        booking_time TIME NOT NULL,
+        event_note TEXT,
+        is_active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(tenant_id, booking_month, booking_day, booking_time)
+      )
+    `)
+    
+    // Create indexes for recurring_bookings table
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_recurring_bookings_tenant_id ON recurring_bookings(tenant_id)')
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_recurring_bookings_user_id ON recurring_bookings(user_id)')
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_recurring_bookings_date ON recurring_bookings(booking_month, booking_day)')
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_recurring_bookings_active ON recurring_bookings(is_active)')
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_recurring_bookings_datetime ON recurring_bookings(booking_month, booking_day, booking_time)')
+    
+    // Add columns to existing bookings table for recurring support
+    await pool.query(`
+      ALTER TABLE bookings 
+      ADD COLUMN IF NOT EXISTS is_recurring BOOLEAN DEFAULT false,
+      ADD COLUMN IF NOT EXISTS recurring_booking_id INTEGER REFERENCES recurring_bookings(id) ON DELETE SET NULL
+    `)
+    
+    // Create indexes for new booking columns
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_bookings_is_recurring ON bookings(is_recurring)')
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_bookings_recurring_id ON bookings(recurring_booking_id)')
+    
+    // Create trigger for recurring_bookings updated_at
+    await pool.query(`
+      DROP TRIGGER IF EXISTS update_recurring_bookings_updated_at ON recurring_bookings;
+      CREATE TRIGGER update_recurring_bookings_updated_at
+        BEFORE UPDATE ON recurring_bookings
         FOR EACH ROW
         EXECUTE FUNCTION update_updated_at_column()
     `)

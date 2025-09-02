@@ -32,6 +32,9 @@ model Tenant {
   tenantUsers        TenantUser[]
   tenantSettings     TenantSettings?
   tenantSubscription TenantSubscription?
+  availabilityTemplates AvailabilityTemplate[]
+  availabilityOverrides AvailabilityOverride[]
+  recurringBookings  RecurringBooking[]
   
   @@index([subdomain])
   @@index([isActive])
@@ -114,6 +117,10 @@ model User {
   bookings      Booking[]
   refreshTokens RefreshToken[]
   tenantUsers   TenantUser[]
+  platformSettingsUpdates PlatformSettings[]
+  adminAuditLogs AdminAuditLog[]
+  availabilityOverrides AvailabilityOverride[]
+  recurringBookings RecurringBooking[]
   
   @@unique([tenantId, username])
   @@unique([tenantId, email])
@@ -126,25 +133,30 @@ model User {
 }
 
 model Booking {
-  id          Int       @id @default(autoincrement())
-  tenantId    Int       @map("tenant_id")
-  userId      Int       @map("user_id")
-  bookingDate DateTime  @map("booking_date") @db.Date
-  bookingTime DateTime  @map("booking_time") @db.Time(6)
-  eventNote   String?   @map("event_note") @db.Text
-  status      String    @default("pending") @db.VarChar(20)
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  id                Int              @id @default(autoincrement())
+  tenantId          Int              @map("tenant_id")
+  userId            Int              @map("user_id")
+  bookingDate       DateTime         @map("booking_date") @db.Date
+  bookingTime       DateTime         @map("booking_time") @db.Time(6)
+  eventNote         String?          @map("event_note") @db.Text
+  status            String           @default("pending") @db.VarChar(20)
+  isRecurring       Boolean          @default(false) @map("is_recurring")
+  recurringBookingId Int?            @map("recurring_booking_id")
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt         DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
   
   // Relations
-  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant            Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recurringBooking  RecurringBooking? @relation(fields: [recurringBookingId], references: [id], onDelete: SetNull)
   
   @@index([tenantId])
   @@index([userId])
   @@index([tenantId, bookingDate])
   @@index([tenantId, status])
   @@index([tenantId, bookingDate, bookingTime])
+  @@index([isRecurring])
+  @@index([recurringBookingId])
   @@map("bookings")
 }
 
@@ -184,4 +196,121 @@ model RefreshToken {
   @@index([userId])
   @@index([token])
   @@map("refresh_tokens")
+}
+
+// Platform Administration Models
+model PlatformSettings {
+  id          Int      @id @default(autoincrement())
+  settingKey  String   @unique @map("setting_key") @db.VarChar(100)
+  settingValue String  @map("setting_value") @db.Text
+  settingType String   @map("setting_type") @db.VarChar(20)
+  isActive    Boolean  @default(true) @map("is_active")
+  updatedBy   Int?     @map("updated_by")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  
+  // Relations
+  updatedByUser User? @relation(fields: [updatedBy], references: [id], onDelete: SetNull)
+  
+  @@index([settingKey])
+  @@index([isActive])
+  @@map("platform_settings")
+}
+
+model AdminAuditLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int      @map("user_id")
+  action     String   @db.VarChar(100)
+  targetType String   @map("target_type") @db.VarChar(50)
+  targetId   Int?     @map("target_id")
+  details    Json?
+  ipAddress  String?  @map("ip_address") @db.VarChar(45)
+  userAgent  String?  @map("user_agent") @db.Text
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([action])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+  @@map("admin_audit_log")
+}
+
+model RecurringBooking {
+  id           Int      @id @default(autoincrement())
+  tenantId     Int      @map("tenant_id")
+  userId       Int      @map("user_id")
+  bookingMonth Int      @map("booking_month") // 1-12
+  bookingDay   Int      @map("booking_day")   // 1-31
+  bookingTime  DateTime @map("booking_time") @db.Time(6)
+  eventNote    String?  @map("event_note") @db.Text
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  
+  // Relations
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookings     Booking[] // Associated yearly booking instances
+  
+  @@unique([tenantId, bookingMonth, bookingDay, bookingTime])
+  @@index([tenantId])
+  @@index([userId])
+  @@index([tenantId, bookingMonth, bookingDay])
+  @@index([tenantId, isActive])
+  @@index([bookingMonth, bookingDay, bookingTime])
+  @@map("recurring_bookings")
+}
+
+// Availability Template System
+model AvailabilityTemplate {
+  id           Int       @id @default(autoincrement())
+  tenantId     Int       @map("tenant_id")
+  name         String    @db.VarChar(100)
+  description  String?   @db.Text
+  daysOfWeek   Int[]     @map("days_of_week") // [1,2,3,4,5] for Mon-Fri (1=Monday, 7=Sunday)
+  timeSlots    String[]  @map("time_slots")   // ['09:00', '10:00', '11:00', '14:00', '15:00']
+  maxBookings  Int       @default(1) @map("max_bookings")
+  isActive     Boolean   @default(true) @map("is_active")
+  priority     Int       @default(0) // Higher priority templates override lower ones
+  validFrom    DateTime? @map("valid_from") @db.Date
+  validUntil   DateTime? @map("valid_until") @db.Date
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  
+  // Relations
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  @@index([tenantId])
+  @@index([tenantId, isActive])
+  @@index([tenantId, priority])
+  @@index([validFrom, validUntil])
+  @@map("availability_templates")
+}
+
+model AvailabilityOverride {
+  id           Int       @id @default(autoincrement())
+  tenantId     Int       @map("tenant_id")
+  date         DateTime  @db.Date
+  timeSlot     String?   @map("time_slot") @db.VarChar(8) // Nullable for full-day overrides
+  overrideType String    @map("override_type") @db.VarChar(20) // 'disable', 'enable', 'modify_capacity'
+  maxBookings  Int?      @map("max_bookings") // For capacity modifications
+  reason       String?   @db.Text
+  isActive     Boolean   @default(true) @map("is_active")
+  createdBy    Int       @map("created_by")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  
+  // Relations
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  creator      User      @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  
+  @@unique([tenantId, date, timeSlot]) // Prevent duplicate overrides
+  @@index([tenantId])
+  @@index([tenantId, date])
+  @@index([tenantId, overrideType])
+  @@index([createdBy])
+  @@map("availability_overrides")
 }
