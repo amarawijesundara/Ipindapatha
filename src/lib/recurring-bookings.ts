@@ -53,20 +53,9 @@ export class RecurringBookingService {
       const bookingMonth = bookingDate.getMonth() + 1 // 1-based month
       const bookingDay = bookingDate.getDate()
 
-      // Check if this date/time is already taken by another recurring booking
-      const existingRecurring = await prisma.recurringBooking.findFirst({
-        where: {
-          tenantId: data.tenantId,
-          bookingMonth,
-          bookingDay,
-          bookingTime,
-          isActive: true
-        }
-      })
-
-      if (existingRecurring) {
-        throw new Error('This date and time is already reserved by another yearly booking')
-      }
+      // Note: We don't blanket-block recurring bookings for the same date/time
+      // The availability system will handle capacity limits when actual bookings are created
+      // This allows multiple users to have recurring bookings for popular dates (like special holidays)
 
       // Check if user already has a recurring booking for this date/time
       const userExisting = await prisma.recurringBooking.findFirst({
@@ -341,14 +330,20 @@ export class RecurringBookingService {
           // Create the booking instance
           await prisma.booking.create({
             data: {
-              tenantId,
-              userId: recurringBooking.userId,
+              tenant: {
+                connect: { id: tenantId }
+              },
+              user: {
+                connect: { id: recurringBooking.userId }
+              },
               bookingDate: targetDate,
               bookingTime: recurringBooking.bookingTime,
               eventNote: recurringBooking.eventNote || `Yearly booking - ${targetDate.toDateString()}`,
               status: 'confirmed',
               isRecurring: true,
-              recurringBookingId
+              recurringBooking: recurringBookingId ? {
+                connect: { id: recurringBookingId }
+              } : undefined
             }
           })
         } catch (yearError) {

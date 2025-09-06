@@ -85,7 +85,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
           <h1 className="text-2xl font-bold text-error-800 mb-2">Access Denied</h1>
           <p className="text-error-600 mb-4">Super admin privileges required</p>
           <Button asChild variant="outline">
-            <Link href="/dashboard">Back to Dashboard</Link>
+            <Link href="/my-account">Back to My Account</Link>
           </Button>
         </div>
       </div>
@@ -224,7 +224,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
 
             <div className="flex items-center space-x-4">
               <Button asChild variant="outline" size="sm">
-                <Link href="/dashboard">
+                <Link href="/my-account">
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                   </svg>

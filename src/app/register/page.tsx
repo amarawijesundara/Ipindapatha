@@ -140,7 +140,7 @@ export default function Register() {
         router.push(redirectUrl)
         // The home page will handle the pending booking completion
       } else {
-        router.push('/dashboard')
+        router.push('/my-account')
       }
     } catch (error) {
       console.error('Registration failed:', error)

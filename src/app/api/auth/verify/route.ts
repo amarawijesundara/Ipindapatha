@@ -4,9 +4,10 @@ import { UserService } from '@/lib/auth'
 
 export async function GET(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization')
+    // Read token from httpOnly cookie (matching login/middleware pattern)
+    const token = request.cookies.get('token')?.value
     
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!token) {
       return NextResponse.json(
         {
           error: 'Authentication required',
@@ -15,9 +16,7 @@ export async function GET(request: NextRequest) {
         { status: 401 }
       )
     }
-
-    const token = authHeader.substring(7)
-    const payload = verifyToken(token)
+    const payload = await verifyToken(token)
 
     if (!payload) {
       return NextResponse.json(

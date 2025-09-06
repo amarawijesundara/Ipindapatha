@@ -415,6 +415,7 @@ export class AvailabilityService {
           slot.timeSlot
         )
         
+        
         if (isBlocked) {
           // Mark slot as unavailable due to recurring booking
           filteredSlots.push({

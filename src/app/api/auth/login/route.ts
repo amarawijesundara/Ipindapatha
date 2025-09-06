@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Generate JWT token (simplified)
-    const token = generateToken({
+    const token = await generateToken({
       userId: user.id,
       username: user.username,
       email: user.email,
@@ -56,7 +56,16 @@ export async function POST(request: NextRequest) {
       user: UserService.toJSON(user)
     })
 
-    // Set httpOnly cookie for JWT token
+    // First clear any existing token (especially expired ones)
+    response.cookies.set('token', '', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 0, // Clear immediately
+      path: '/'
+    })
+
+    // Then set the new token
     response.cookies.set('token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',

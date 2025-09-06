@@ -149,6 +149,10 @@ export interface BookingCreateInput extends TenantAwareInput {
   bookingDate: string
   bookingTime: string
   eventNote?: string
+  guestName?: string
+  guestEmail?: string
+  guestPhone?: string
+  adminOverride?: boolean
 }
 
 export interface AvailabilityCreateInput extends TenantAwareInput {

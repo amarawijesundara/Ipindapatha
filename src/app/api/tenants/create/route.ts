@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
         user: UserService.toJSON(adminUser),
         token,
         loginUrl: `https://${tenant.subdomain}.yourdomain.com`,
-        dashboardUrl: `https://${tenant.subdomain}.yourdomain.com/dashboard`
+        dashboardUrl: `https://${tenant.subdomain}.yourdomain.com/my-account`
       },
       { status: 201 }
     )

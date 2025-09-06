@@ -5,17 +5,17 @@ import prisma from '@/lib/db'
 // GET /api/admin/bookings - Get all bookings across tenants (Super Admin only)
 export async function GET(request: NextRequest) {
   try {
-    // Verify admin authentication
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    // Verify admin authentication using cookies
+    const token = request.cookies.get('token')?.value
+    
+    if (!token) {
       return NextResponse.json(
         { error: 'Authentication required' },
         { status: 401 }
       )
     }
 
-    const token = authHeader.substring(7)
-    const payload = verifyToken(token)
+    const payload = await verifyToken(token)
     
     if (!payload || payload.role !== 'super_admin') {
       return NextResponse.json(
@@ -114,17 +114,17 @@ export async function GET(request: NextRequest) {
 // PATCH /api/admin/bookings - Update booking status (Super Admin only)
 export async function PATCH(request: NextRequest) {
   try {
-    // Verify admin authentication
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    // Verify admin authentication using cookies
+    const token = request.cookies.get('token')?.value
+    
+    if (!token) {
       return NextResponse.json(
         { error: 'Authentication required' },
         { status: 401 }
       )
     }
 
-    const token = authHeader.substring(7)
-    const payload = verifyToken(token)
+    const payload = await verifyToken(token)
     
     if (!payload || payload.role !== 'super_admin') {
       return NextResponse.json(
@@ -216,20 +216,157 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-// POST /api/admin/bookings/bulk - Bulk operations on bookings (Super Admin only)
+// POST /api/admin/bookings - Create booking on behalf of user (Admin only)
 export async function POST(request: NextRequest) {
   try {
-    // Verify admin authentication
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    // Verify admin authentication using cookies
+    const token = request.cookies.get('token')?.value
+    
+    if (!token) {
       return NextResponse.json(
         { error: 'Authentication required' },
         { status: 401 }
       )
     }
 
-    const token = authHeader.substring(7)
-    const payload = verifyToken(token)
+    const payload = await verifyToken(token)
+    
+    if (!payload || !['super_admin', 'tenant_admin'].includes(payload.role)) {
+      return NextResponse.json(
+        { error: 'Admin access required' },
+        { status: 403 }
+      )
+    }
+
+    const body = await request.json()
+    const { 
+      userId, 
+      tenantId, 
+      bookingDate, 
+      bookingTime, 
+      eventNote, 
+      guestName, 
+      guestEmail, 
+      guestPhone,
+      overrideCapacity = false
+    } = body
+
+    // Basic validation
+    if (!bookingDate || !bookingTime) {
+      return NextResponse.json(
+        { error: 'Validation failed', message: 'Booking date and time are required' },
+        { status: 400 }
+      )
+    }
+
+    // Validate tenantId for tenant_admin
+    if (payload.role === 'tenant_admin' && payload.tenantId !== tenantId) {
+      return NextResponse.json(
+        { error: 'Access denied', message: 'Tenant admin can only create bookings for their tenant' },
+        { status: 403 }
+      )
+    }
+
+    // userId is required - verify user exists and belongs to the correct tenant
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Validation failed', message: 'User ID is required for booking creation' },
+        { status: 400 }
+      )
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId }
+    })
+
+    if (!user) {
+      return NextResponse.json(
+        { error: 'User not found' },
+        { status: 404 }
+      )
+    }
+
+    // For tenant_admin, ensure user belongs to their tenant
+    if (payload.role === 'tenant_admin' && user.tenantId !== payload.tenantId) {
+      return NextResponse.json(
+        { error: 'Access denied', message: 'Cannot create booking for user from different tenant' },
+        { status: 403 }
+      )
+    }
+
+    // Create the booking using BookingService but with admin privileges
+    const BookingService = (await import('@/lib/bookings')).default
+    
+    const booking = await BookingService.createBooking({
+      userId: userId, // userId is required
+      tenantId: tenantId,
+      bookingDate,
+      bookingTime,
+      eventNote: eventNote || `Admin booking - ${user.username}`,
+      guestName,
+      guestEmail, 
+      guestPhone,
+      isRecurring: false,
+      adminOverride: overrideCapacity || false // Allow admin to choose override
+    })
+
+    // Log admin action
+    await prisma.adminAuditLog.create({
+      data: {
+        userId: payload.userId,
+        action: 'CREATE_ADMIN_BOOKING',
+        targetType: 'booking',
+        targetId: booking.id,
+        details: {
+          booking_date: bookingDate,
+          booking_time: bookingTime,
+          target_user_id: userId,
+          guest_name: guestName,
+          tenant_id: tenantId,
+          override_capacity: overrideCapacity
+        }
+      }
+    })
+
+    return NextResponse.json({
+      message: 'Admin booking created successfully',
+      booking
+    }, { status: 201 })
+
+  } catch (error) {
+    console.error('Error creating admin booking:', error)
+    
+    // Handle specific booking errors
+    if (error instanceof Error) {
+      if (error.message.includes('already have a booking') || error.message.includes('time slot is not available')) {
+        return NextResponse.json(
+          { error: 'Booking conflict', message: error.message },
+          { status: 409 }
+        )
+      }
+    }
+    
+    return NextResponse.json(
+      { error: 'Internal server error', message: 'Failed to create booking' },
+      { status: 500 }
+    )
+  }
+}
+
+// PUT /api/admin/bookings/bulk - Bulk operations on bookings (Super Admin only)
+export async function PUT(request: NextRequest) {
+  try {
+    // Verify admin authentication using cookies
+    const token = request.cookies.get('token')?.value
+    
+    if (!token) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401 }
+      )
+    }
+
+    const payload = await verifyToken(token)
     
     if (!payload || payload.role !== 'super_admin') {
       return NextResponse.json(

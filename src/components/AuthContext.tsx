@@ -69,7 +69,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!response.ok) {
         // Only logout on 401/403 errors (token invalid/expired)
         if (response.status === 401 || response.status === 403) {
-          // This is expected when user is not logged in - don't log as error
+          // Clear expired token by calling logout API to clean cookies
+          try {
+            await fetch('/api/auth/logout', {
+              method: 'POST',
+              credentials: 'include',
+            })
+          } catch (logoutError) {
+            console.debug('Logout API call failed during token cleanup:', logoutError)
+          }
+          
           dispatch({ type: 'LOGOUT' })
         } else {
           // For other errors (500, network issues), just stop loading but keep user logged in

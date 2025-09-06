@@ -46,10 +46,10 @@ export default function Header() {
             {user ? (
               <>
                 <Link 
-                  href="/dashboard" 
+                  href="/my-account" 
                   className="text-secondary-700 hover:text-primary-600 font-medium transition-colors"
                 >
-                  Dashboard
+                  My Account
                 </Link>
                 {user.role === 'super_admin' && (
                   <Link 
@@ -146,11 +146,11 @@ export default function Header() {
                     </p>
                   </div>
                   <Link
-                    href="/dashboard"
+                    href="/my-account"
                     className="block px-3 py-2 text-secondary-700 hover:text-primary-600 hover:bg-secondary-50 rounded-lg font-medium transition-colors"
                     onClick={closeMobileMenu}
                   >
-                    Dashboard
+                    My Account
                   </Link>
                   {user.role === 'super_admin' && (
                     <Link

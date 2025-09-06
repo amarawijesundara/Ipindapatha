@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { BookingService } from '@/lib/bookings'
+import prisma from '@/lib/db'
+import { createTimeFromString } from '@/lib/utils/dateValidation'
 
 // Helper function to get temporary reservations
 async function getTemporaryReservations() {
@@ -22,6 +24,7 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get('start_date')
     const endDate = searchParams.get('end_date')
     const limitParam = searchParams.get('limit')
+    const sessionId = searchParams.get('sessionId') // Add session context
     
     // Validate and parse limit parameter
     let limit = 30 // default
@@ -37,9 +40,10 @@ export async function GET(request: NextRequest) {
     }
 
     // Get availability (public access - no authentication required)
-    // For simplified system, we'll get availability for all tenants or default tenant
+    // Use default tenant ID for multi-tenant system
+    const DEFAULT_TENANT_ID = 1
     const availability = await BookingService.getAvailability(
-      1, // Default tenant ID - adjust based on your system
+      DEFAULT_TENANT_ID,
       {
         date: date || undefined,
         startDate: startDate || undefined,
@@ -51,26 +55,77 @@ export async function GET(request: NextRequest) {
     // Get temporary reservations to show "partially booked" status
     const tempReservations = await getTemporaryReservations()
     
-    // Mark slots with temporary reservations
-    const enhancedAvailability = availability.map(slot => {
+    // Get actual booking counts for each slot
+    const enhancedAvailability = await Promise.all(availability.map(async slot => {
       const slotDate = new Date(slot.date).toISOString().split('T')[0]
       const slotTime = slot.timeSlot || slot.time_slot
       
+      // Check for temporary reservations
       const tempReservation = tempReservations.find(temp => 
         temp.date === slotDate && temp.timeSlot === slotTime
       )
       
-      if (tempReservation) {
-        return {
-          ...slot,
-          isTemporarilyReserved: true,
-          reservationExpiresAt: tempReservation.expiresAt,
-          status: 'partially_booked'
+      // Check if this is the current user's reservation
+      const isMyReservation = tempReservation && sessionId && tempReservation.sessionId === sessionId
+      
+      // Count actual bookings for this slot
+      let bookingCount = 0
+      try {
+        // Parse date and time correctly using proper PostgreSQL type casting
+        const bookingTime = createTimeFromString(slotTime)
+        
+        if (bookingTime) {
+          // Extract time portion from Date object for PostgreSQL TIME comparison
+          const timeString = bookingTime.toISOString().substring(11, 19) // "HH:MM:SS"
+          
+          // Use string date casting to avoid timezone issues with JavaScript Date objects
+          const result = await prisma.$queryRaw`
+            SELECT COUNT(*) as count 
+            FROM bookings 
+            WHERE tenant_id = ${DEFAULT_TENANT_ID}
+              AND booking_date = ${slotDate}::date
+              AND booking_time = ${timeString}::time
+              AND status IN ('pending', 'confirmed')
+          `
+          bookingCount = Number(result[0]?.count) || 0
         }
+        
+      } catch (error) {
+        console.error(`Error counting bookings for slot ${slotDate} ${slotTime}:`, error)
       }
       
-      return slot
-    })
+      // Determine slot status
+      let status = 'available'
+      let isAvailable = slot.is_available
+      const maxBookings = slot.max_bookings || 1
+      
+      if (slot.source === 'recurring_blocked') {
+        status = 'recurring_booked'
+        isAvailable = false
+      } else if (tempReservation) {
+        status = isMyReservation ? 'my_reservation' : 'partially_booked'
+        isAvailable = isMyReservation || bookingCount < maxBookings
+      } else if (bookingCount >= maxBookings) {
+        status = 'fully_booked'
+        isAvailable = false
+      } else if (bookingCount > 0) {
+        status = 'partially_available'
+        isAvailable = true
+      } else {
+      }
+      
+      return {
+        ...slot,
+        booking_count: bookingCount,
+        available_slots: Math.max(0, maxBookings - bookingCount),
+        status,
+        is_available: isAvailable,
+        isTemporarilyReserved: !!tempReservation,
+        isMyReservation: !!isMyReservation,
+        reservationExpiresAt: tempReservation?.expiresAt,
+        reservationSessionId: tempReservation?.sessionId
+      }
+    }))
 
     return NextResponse.json({
       message: 'Availability retrieved successfully',

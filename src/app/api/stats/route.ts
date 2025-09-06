@@ -6,16 +6,15 @@ import prisma from '@/lib/db'
 
 export async function GET(request: NextRequest) {
   try {
-    // Verify authentication
-    const authHeader = request.headers.get('authorization')
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    // Verify authentication using cookies (consistent with admin endpoints)
+    const token = request.cookies.get('token')?.value
+    if (!token) {
       return NextResponse.json(
         { error: 'Authentication required', message: 'No valid authentication token provided' },
         { status: 401 }
       )
     }
 
-    const token = authHeader.substring(7)
     const payload = verifyToken(token)
     if (!payload) {
       return NextResponse.json(

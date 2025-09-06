@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { AdminTable, Button, Loading } from '@/components/ui'
+import { AdminTable, Button, Loading, BookingDetailModal, ConfirmationModal } from '@/components/ui'
 
 interface Booking {
   id: number
@@ -24,6 +24,16 @@ export default function BookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
+  const [updatingBookings, setUpdatingBookings] = useState<Set<number>>(new Set())
+  
+  // Modal states
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
+  const [showDetailModal, setShowDetailModal] = useState(false)
+  const [showConfirmModal, setShowConfirmModal] = useState(false)
+  const [confirmAction, setConfirmAction] = useState<{
+    type: 'confirm' | 'cancel'
+    bookingId: number
+  } | null>(null)
 
   useEffect(() => {
     fetchBookings()
@@ -31,28 +41,16 @@ export default function BookingsPage() {
 
   const fetchBookings = async () => {
     try {
-      const token = localStorage.getItem('token')
-      if (!token) return
-
-      // Note: This assumes we have a platform-wide bookings endpoint
-      // We'll need to create this endpoint or use existing booking API with admin permissions
-      const response = await fetch('/api/bookings', {
-        headers: { Authorization: `Bearer ${token}` },
+      // Use cookie-based authentication for admin API
+      const response = await fetch('/api/admin/bookings', {
+        credentials: 'include',
       })
 
       if (response.ok) {
         const data = await response.json()
-        // Transform the data to match our interface
-        const transformedBookings = data.bookings?.map((booking: any) => ({
-          ...booking,
-          booking_date: booking.booking_date || booking.bookingDate,
-          booking_time: booking.booking_time || booking.bookingTime,
-          event_note: booking.event_note || booking.eventNote,
-          username: booking.username || 'Unknown User',
-          email: booking.email || '',
-          tenant: booking.tenant || { name: 'Unknown Tenant', subdomain: 'unknown' }
-        })) || []
-        setBookings(transformedBookings)
+        setBookings(data.bookings || [])
+      } else {
+        console.error('Failed to fetch bookings:', response.status)
       }
     } catch (error) {
       console.error('Failed to fetch bookings:', error)
@@ -88,6 +86,77 @@ export default function BookingsPage() {
     const hour12 = parseInt(hours) % 12 || 12
     const ampm = parseInt(hours) >= 12 ? 'PM' : 'AM'
     return `${hour12}:${minutes} ${ampm}`
+  }
+
+  const updateBookingStatus = async (bookingId: number, newStatus: 'confirmed' | 'cancelled') => {
+    // Add booking to updating state
+    setUpdatingBookings(prev => new Set(prev.add(bookingId)))
+    
+    try {
+      const response = await fetch('/api/admin/bookings', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          bookingId,
+          status: newStatus,
+          notes: `Status updated by admin to ${newStatus}`
+        })
+      })
+
+      if (response.ok) {
+        // Update the booking in local state (optimistic update)
+        setBookings(prev => prev.map(booking => 
+          booking.id === bookingId 
+            ? { ...booking, status: newStatus, updated_at: new Date().toISOString() }
+            : booking
+        ))
+      } else {
+        const error = await response.json()
+        console.error(`Failed to update booking: ${error.message || 'Unknown error'}`)
+        // Don't show alert, error will be handled by confirmation modal
+      }
+    } catch (error) {
+      console.error('Failed to update booking status:', error)
+      // Don't show alert, error will be handled by confirmation modal
+    } finally {
+      // Remove booking from updating state
+      setUpdatingBookings(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(bookingId)
+        return newSet
+      })
+    }
+  }
+
+  const handleConfirmAction = async () => {
+    if (!confirmAction) return
+    
+    try {
+      await updateBookingStatus(confirmAction.bookingId, confirmAction.type === 'confirm' ? 'confirmed' : 'cancelled')
+      setShowConfirmModal(false)
+      setConfirmAction(null)
+    } catch (error) {
+      // Keep modal open on error so user can retry
+      console.error('Failed to update booking status:', error)
+    }
+  }
+
+  const confirmBooking = (bookingId: number) => {
+    setConfirmAction({ type: 'confirm', bookingId })
+    setShowConfirmModal(true)
+  }
+
+  const cancelBooking = (bookingId: number) => {
+    setConfirmAction({ type: 'cancel', bookingId })
+    setShowConfirmModal(true)
+  }
+
+  const showBookingDetails = (booking: Booking) => {
+    setSelectedBooking(booking)
+    setShowDetailModal(true)
   }
 
   const filteredBookings = bookings.filter(booking => {
@@ -174,59 +243,54 @@ export default function BookingsPage() {
     {
       key: 'actions',
       label: 'Actions',
-      render: (booking: Booking) => (
-        <div className="flex items-center space-x-2">
-          {booking.status === 'pending' && (
-            <>
-              <Button
-                size="sm"
-                variant="success"
-                onClick={() => {
-                  // TODO: Implement confirm booking functionality
-                  console.log('Confirm booking:', booking.id)
-                }}
-              >
-                Confirm
-              </Button>
+      render: (booking: Booking) => {
+        const isUpdating = updatingBookings.has(booking.id)
+        return (
+          <div className="flex items-center space-x-2">
+            {booking.status === 'pending' && (
+              <>
+                <Button
+                  size="sm"
+                  variant="success"
+                  disabled={isUpdating}
+                  onClick={() => confirmBooking(booking.id)}
+                >
+                  {isUpdating ? 'Updating...' : 'Confirm'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="error" 
+                  disabled={isUpdating}
+                  onClick={() => cancelBooking(booking.id)}
+                >
+                  {isUpdating ? 'Updating...' : 'Cancel'}
+                </Button>
+              </>
+            )}
+            {booking.status === 'confirmed' && (
               <Button
                 size="sm"
                 variant="error"
-                onClick={() => {
-                  // TODO: Implement cancel booking functionality
-                  console.log('Cancel booking:', booking.id)
-                }}
+                disabled={isUpdating}
+                onClick={() => cancelBooking(booking.id)}
               >
-                Cancel
+                {isUpdating ? 'Updating...' : 'Cancel'}
               </Button>
-            </>
-          )}
-          {booking.status === 'confirmed' && (
+            )}
             <Button
               size="sm"
-              variant="error"
-              onClick={() => {
-                // TODO: Implement cancel booking functionality
-                console.log('Cancel booking:', booking.id)
-              }}
+              variant="ghost"
+              onClick={() => showBookingDetails(booking)}
+              title="View Details"
             >
-              Cancel
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
             </Button>
-          )}
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              // TODO: Implement view booking details functionality
-              console.log('View booking details:', booking.id)
-            }}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-            </svg>
-          </Button>
-        </div>
-      ),
+          </div>
+        )
+      },
     },
   ]
 
@@ -300,10 +364,30 @@ export default function BookingsPage() {
         columns={columns}
         searchPlaceholder="Search bookings by user, tenant, or event details..."
         emptyMessage="No bookings found."
-        onRowClick={(booking) => {
-          // TODO: Implement booking details view
-          console.log('View booking:', booking.id)
-        }}
+        onRowClick={(booking) => showBookingDetails(booking)}
+      />
+
+      {/* Booking Detail Modal */}
+      <BookingDetailModal
+        isOpen={showDetailModal}
+        onClose={() => setShowDetailModal(false)}
+        booking={selectedBooking}
+      />
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={showConfirmModal}
+        onClose={() => setShowConfirmModal(false)}
+        onConfirm={handleConfirmAction}
+        title={confirmAction?.type === 'confirm' ? 'Confirm Booking' : 'Cancel Booking'}
+        message={
+          confirmAction?.type === 'confirm' 
+            ? 'Are you sure you want to confirm this booking? The user will be notified of the confirmation.'
+            : 'Are you sure you want to cancel this booking? This action cannot be undone and the user will be notified.'
+        }
+        confirmText={confirmAction?.type === 'confirm' ? 'Confirm' : 'Cancel Booking'}
+        confirmVariant={confirmAction?.type === 'confirm' ? 'success' : 'error'}
+        isLoading={confirmAction ? updatingBookings.has(confirmAction.bookingId) : false}
       />
     </div>
   )

@@ -14,9 +14,16 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false)
   const [pendingBooking, setPendingBooking] = useState<any>(null)
   
-  const { login, error } = useAuth()
+  const { login, error, user, loading } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
+  
+  // Redirect authenticated users away from login page
+  useEffect(() => {
+    if (!loading && user) {
+      router.push('/my-account')
+    }
+  }, [user, loading, router])
   
   useEffect(() => {
     // Check for pending booking data
@@ -46,19 +53,23 @@ export default function Login() {
     try {
       await login(formData.identifier, formData.password)
       
+      // Small delay to ensure auth state is fully updated before navigation
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
       // If there's a pending booking, redirect to home with the date selected
       if (pendingBooking) {
         const redirectUrl = searchParams.get('redirect') || '/'
         router.push(redirectUrl)
         // The home page will handle the pending booking completion
       } else {
-        router.push('/dashboard')
+        router.push('/my-account')
       }
     } catch (error) {
       console.error('Login failed:', error)
-    } finally {
+      // Don't navigate on login failure
       setIsLoading(false)
     }
+    // Note: setIsLoading(false) removed from finally block to prevent clearing loading state before navigation
   }
 
   return (
@@ -170,7 +181,7 @@ export default function Login() {
 
               <div className="mt-6 text-center">
                 <p className="text-secondary-600">
-                  Don't have an account?{' '}
+                  Don&apos;t have an account?{' '}
                   <Link 
                     href="/register" 
                     className="font-medium text-primary-600 hover:text-primary-500 transition-colors"

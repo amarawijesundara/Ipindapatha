@@ -2,6 +2,10 @@ import React from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { clsx } from 'clsx'
 
+// Generate stable IDs for SSR consistency
+let idCounter = 0
+const generateId = () => `input-${++idCounter}`
+
 const inputVariants = cva(
   'flex w-full rounded-lg border bg-white px-4 py-3 text-sm text-secondary-900 placeholder:text-secondary-500 transition-colors focus:outline-none disabled:cursor-not-allowed disabled:opacity-50',
   {
@@ -54,7 +58,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
     id,
     ...props
   }, ref) => {
-    const inputId = id || `input-${Math.random().toString(36).substr(2, 9)}`
+    const inputId = React.useMemo(() => id || generateId(), [id])
     const hasError = !!error
     const hasSuccess = !!success && !hasError
     

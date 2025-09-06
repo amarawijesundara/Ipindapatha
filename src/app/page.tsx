@@ -11,6 +11,7 @@ export default function Home() {
   const { user } = useAuth()
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [showBookingModal, setShowBookingModal] = useState(false)
+  const [calendarRefreshKey, setCalendarRefreshKey] = useState(0)
   
   useEffect(() => {
     // Check for pending booking after authentication
@@ -38,8 +39,12 @@ export default function Home() {
   }
 
   const handleBookingComplete = () => {
-    // Refresh calendar data
-    window.location.reload()
+    // Refresh calendar data without page reload to maintain authentication state
+    setShowBookingModal(false)
+    setSelectedDate(null)
+    
+    // Trigger calendar refresh by incrementing the refresh key
+    setCalendarRefreshKey(prev => prev + 1)
   }
 
   const handleCloseModal = () => {
@@ -103,6 +108,7 @@ export default function Home() {
           <MonasteryCalendar
             selectedDate={selectedDate}
             onDateSelect={handleDateSelect}
+            refreshKey={calendarRefreshKey}
           />
         </Container>
       </section>
@@ -116,7 +122,7 @@ export default function Home() {
             </h2>
             <p className="text-monastery-700 max-w-3xl mx-auto leading-relaxed">
               Dhane is a Buddhist practice of offering food and necessities to monks. 
-              It's a meritorious act that brings spiritual benefits to the devotee and supports the monastic community.
+              It&apos;s a meritorious act that brings spiritual benefits to the devotee and supports the monastic community.
             </p>
           </div>
 
@@ -149,8 +155,8 @@ export default function Home() {
           {user && (
             <div className="text-center mt-8">
               <Button asChild size="lg" className="bg-primary-500 hover:bg-primary-600">
-                <Link href="/dashboard">
-                  View My Bookings
+                <Link href="/my-account">
+                  View My Account
                 </Link>
               </Button>
             </div>

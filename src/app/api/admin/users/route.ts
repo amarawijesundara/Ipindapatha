@@ -1,24 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { isSuperAdmin } from '@/lib/jwt'
+import { verifyToken, isSuperAdmin } from '@/lib/jwt'
 import prisma from '@/lib/db'
 
-// Get all users across all tenants (Super Admin only)
+// Get all users across all tenants (Admin only)
 export async function GET(request: NextRequest) {
   try {
+    // Try cookie-based auth first (for components), then Bearer token (for API calls)
+    let token: string | undefined
+    let payload: any = null
+
+    const cookieToken = request.cookies.get('token')?.value
     const authHeader = request.headers.get('authorization')
     
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (cookieToken) {
+      token = cookieToken
+      payload = await verifyToken(token)
+    } else if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7)
+      payload = await verifyToken(token)
+    }
+
+    if (!token || !payload) {
       return NextResponse.json(
         { error: 'Authentication required', message: 'No valid authentication token provided' },
         { status: 401 }
       )
     }
 
-    const token = authHeader.substring(7)
-    
-    if (!isSuperAdmin(token)) {
+    if (!['super_admin', 'tenant_admin'].includes(payload.role)) {
       return NextResponse.json(
-        { error: 'Access denied', message: 'Super admin access required' },
+        { error: 'Access denied', message: 'Admin access required' },
         { status: 403 }
       )
     }
@@ -36,12 +47,17 @@ export async function GET(request: NextRequest) {
     // Build where clause
     const where: any = {}
     
+    // Apply tenant filtering based on user role
+    if (payload.role === 'tenant_admin') {
+      // Tenant admin can only see users from their tenant
+      where.tenantId = payload.tenantId
+    } else if (payload.role === 'super_admin' && tenant && tenant !== 'all') {
+      // Super admin can filter by specific tenant
+      where.tenantId = parseInt(tenant)
+    }
+    
     if (role && role !== 'all') {
       where.role = role
-    }
-
-    if (tenant && tenant !== 'all') {
-      where.tenantId = parseInt(tenant)
     }
 
     if (status === 'active') {
