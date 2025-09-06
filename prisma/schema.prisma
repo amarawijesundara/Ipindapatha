@@ -35,6 +35,8 @@ model Tenant {
   availabilityTemplates AvailabilityTemplate[]
   availabilityOverrides AvailabilityOverride[]
   recurringBookings  RecurringBooking[]
+  bookingPayments    BookingPayment[]
+  paymentReceipts    PaymentReceipt[]
   
   @@index([subdomain])
   @@index([isActive])
@@ -121,6 +123,10 @@ model User {
   adminAuditLogs AdminAuditLog[]
   availabilityOverrides AvailabilityOverride[]
   recurringBookings RecurringBooking[]
+  bookingPayments BookingPayment[]
+  paymentReceipts PaymentReceipt[]
+  paymentVerifications BookingPayment[] @relation("PaymentVerifier")
+  receiptReviews PaymentReceipt[] @relation("ReceiptReviewer")
   
   @@unique([tenantId, username])
   @@unique([tenantId, email])
@@ -140,6 +146,7 @@ model Booking {
   bookingTime       DateTime         @map("booking_time") @db.Time(6)
   eventNote         String?          @map("event_note") @db.Text
   status            String           @default("pending") @db.VarChar(20)
+  offeringType      String           @default("food_preparation") @map("offering_type") @db.VarChar(20) // 'food_preparation' or 'monetary_donation'
   isRecurring       Boolean          @default(false) @map("is_recurring")
   recurringBookingId Int?            @map("recurring_booking_id")
   createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamp(6)
@@ -149,12 +156,14 @@ model Booking {
   tenant            Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   recurringBooking  RecurringBooking? @relation(fields: [recurringBookingId], references: [id], onDelete: SetNull)
+  bookingPayment    BookingPayment?
   
   @@index([tenantId])
   @@index([userId])
   @@index([tenantId, bookingDate])
   @@index([tenantId, status])
   @@index([tenantId, bookingDate, bookingTime])
+  @@index([offeringType])
   @@index([isRecurring])
   @@index([recurringBookingId])
   @@map("bookings")
@@ -313,4 +322,68 @@ model AvailabilityOverride {
   @@index([tenantId, overrideType])
   @@index([createdBy])
   @@map("availability_overrides")
+}
+
+// Payment System Models
+model BookingPayment {
+  id              Int       @id @default(autoincrement())
+  bookingId       Int       @unique @map("booking_id")
+  tenantId        Int       @map("tenant_id")
+  userId          Int       @map("user_id")
+  amount          Decimal   @db.Decimal(10,2)
+  currency        String    @default("USD") @db.VarChar(3)
+  paymentDeadline DateTime  @map("payment_deadline") @db.Timestamp(6)
+  status          String    @default("pending") @db.VarChar(20) // 'pending', 'paid', 'verified', 'overdue', 'cancelled'
+  paidAt          DateTime? @map("paid_at") @db.Timestamp(6)
+  verifiedAt      DateTime? @map("verified_at") @db.Timestamp(6)
+  verifiedBy      Int?      @map("verified_by")
+  notes           String?   @db.Text
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  
+  // Relations
+  booking         Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verifier        User?     @relation("PaymentVerifier", fields: [verifiedBy], references: [id], onDelete: SetNull)
+  receipts        PaymentReceipt[]
+  
+  @@index([tenantId])
+  @@index([userId])
+  @@index([status])
+  @@index([paymentDeadline])
+  @@index([tenantId, status])
+  @@index([verifiedBy])
+  @@map("booking_payments")
+}
+
+model PaymentReceipt {
+  id              Int       @id @default(autoincrement())
+  paymentId       Int       @map("payment_id")
+  tenantId        Int       @map("tenant_id")
+  userId          Int       @map("user_id")
+  fileName        String    @map("file_name") @db.VarChar(255)
+  originalName    String    @map("original_name") @db.VarChar(255)
+  filePath        String    @map("file_path") @db.VarChar(500)
+  fileSize        Int       @map("file_size")
+  mimeType        String    @map("mime_type") @db.VarChar(100)
+  status          String    @default("pending") @db.VarChar(20) // 'pending', 'approved', 'rejected'
+  rejectionReason String?   @map("rejection_reason") @db.Text
+  reviewedAt      DateTime? @map("reviewed_at") @db.Timestamp(6)
+  reviewedBy      Int?      @map("reviewed_by")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  
+  // Relations
+  payment         BookingPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewer        User?     @relation("ReceiptReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  
+  @@index([paymentId])
+  @@index([tenantId])
+  @@index([userId])
+  @@index([status])
+  @@index([reviewedBy])
+  @@map("payment_receipts")
 }

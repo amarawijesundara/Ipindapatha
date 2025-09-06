@@ -29,6 +29,8 @@ interface BookingFormData {
   email: string
   phone: string
   eventNote: string
+  offeringType: 'food_preparation' | 'monetary_donation'
+  donationAmount: number
 }
 
 interface User {
@@ -58,7 +60,9 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
     name: '',
     email: '',
     phone: '',
-    eventNote: ''
+    eventNote: '',
+    offeringType: 'food_preparation',
+    donationAmount: 0
   })
   
   // Admin-specific state
@@ -66,6 +70,20 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null)
   const [selectedTargetUser, setSelectedTargetUser] = useState<User | null>(null)
   const [adminOverride, setAdminOverride] = useState(false)
+
+  // Calculate payment deadline (2 weeks before booking date)
+  const calculatePaymentDeadline = (bookingDate: Date): Date => {
+    const deadline = new Date(bookingDate)
+    deadline.setDate(deadline.getDate() - 14) // 2 weeks before
+    deadline.setHours(23, 59, 59, 999) // End of day
+    return deadline
+  }
+
+  // Check if payment deadline has passed
+  const isPaymentDeadlinePassed = (bookingDate: Date): boolean => {
+    const deadline = calculatePaymentDeadline(bookingDate)
+    return deadline < new Date()
+  }
 
   useEffect(() => {
     if (selectedDate) {
@@ -233,6 +251,18 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
       return
     }
 
+    // Validate payment deadline for monetary donations
+    if (formData.offeringType === 'monetary_donation' && selectedDate && isPaymentDeadlinePassed(selectedDate)) {
+      setValidationError('Payment deadline has passed for monetary donations. Please choose food preparation or select a different date.')
+      return
+    }
+
+    // Validate donation amount
+    if (formData.offeringType === 'monetary_donation' && (!formData.donationAmount || formData.donationAmount <= 0)) {
+      setValidationError('Please enter a valid donation amount')
+      return
+    }
+
     if (!user) {
       // Guest user submitting with form data - validate required fields
       if (!formData.name || !formData.email) {
@@ -272,6 +302,8 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
             isAdmin && selectedTargetUser ? selectedTargetUser.username : 
             formData.name || user?.username
           } (${selectedTimes.length > 1 ? `${selectedTimes.indexOf(timeSlot) + 1} of ${selectedTimes.length}` : 'Single slot'})`,
+          offeringType: formData.offeringType,
+          donationAmount: formData.offeringType === 'monetary_donation' ? formData.donationAmount : undefined,
           guestName: isAdmin && selectedTargetUser ? selectedTargetUser.username : (!user ? formData.name : undefined),
           guestEmail: isAdmin && selectedTargetUser ? selectedTargetUser.email : (!user ? formData.email : undefined),
           guestPhone: isAdmin && selectedTargetUser ? selectedTargetUser.phoneNumber : (!user ? formData.phone : undefined),
@@ -632,6 +664,140 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
                       placeholder="Enter your phone number"
                     />
                   </div>
+                </div>
+              )}
+              
+              {/* Offering Type Selection */}
+              <div className="space-y-4">
+                <h4 className="font-medium text-monastery-800">Offering Type</h4>
+                <div className="space-y-3">
+                  {/* Food Preparation Option */}
+                  <label className="flex items-start space-x-3 cursor-pointer p-3 rounded-lg border border-monastery-200 hover:bg-monastery-50 transition-colors">
+                    <input
+                      type="radio"
+                      name="offeringType"
+                      value="food_preparation"
+                      checked={formData.offeringType === 'food_preparation'}
+                      onChange={(e) => setFormData(prev => ({ ...prev, offeringType: e.target.value as 'food_preparation' | 'monetary_donation' }))}
+                      className="mt-1 text-primary-600 focus:ring-primary-500"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-lg">🍽️</span>
+                        <span className="font-medium text-monastery-800">Prepare Food Personally</span>
+                      </div>
+                      <p className="text-sm text-monastery-600 mt-1">
+                        I will personally prepare and bring food offerings for the ceremony (traditional approach)
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Monetary Donation Option */}
+                  <label className="flex items-start space-x-3 cursor-pointer p-3 rounded-lg border border-monastery-200 hover:bg-monastery-50 transition-colors">
+                    <input
+                      type="radio"
+                      name="offeringType"
+                      value="monetary_donation"
+                      checked={formData.offeringType === 'monetary_donation'}
+                      onChange={(e) => setFormData(prev => ({ ...prev, offeringType: e.target.value as 'food_preparation' | 'monetary_donation' }))}
+                      className="mt-1 text-primary-600 focus:ring-primary-500"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-lg">💝</span>
+                        <span className="font-medium text-monastery-800">Make Monetary Donation</span>
+                      </div>
+                      <p className="text-sm text-monastery-600 mt-1">
+                        I will make a monetary donation for the monastery to arrange the offerings
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Donation Amount Selection */}
+              {formData.offeringType === 'monetary_donation' && selectedDate && (
+                <div className="space-y-4 p-4 bg-lotus-50 rounded-lg border border-monastery-200">
+                  <h5 className="font-medium text-monastery-800">Donation Details</h5>
+                  
+                  {/* Payment Deadline Warning */}
+                  {selectedDate && (
+                    <div className={`p-3 rounded-lg border ${
+                      isPaymentDeadlinePassed(selectedDate) 
+                        ? 'bg-error-50 border-error-200'
+                        : 'bg-warning-50 border-warning-200'
+                    }`}>
+                      <div className="flex items-start space-x-2">
+                        <span className="text-lg">⏰</span>
+                        <div>
+                          <p className={`font-medium ${
+                            isPaymentDeadlinePassed(selectedDate) 
+                              ? 'text-error-800'
+                              : 'text-warning-800'
+                          }`}>
+                            Payment Deadline: {calculatePaymentDeadline(selectedDate).toLocaleDateString()}
+                          </p>
+                          <p className={`text-sm mt-1 ${
+                            isPaymentDeadlinePassed(selectedDate) 
+                              ? 'text-error-600'
+                              : 'text-warning-600'
+                          }`}>
+                            {isPaymentDeadlinePassed(selectedDate)
+                              ? 'Payment deadline has passed. Please choose food preparation or select a different date.'
+                              : 'Payment must be made at least 2 weeks before the ceremony date.'
+                            }
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Donation Amount */}
+                  {!isPaymentDeadlinePassed(selectedDate!) && (
+                    <div>
+                      <label className="block text-sm font-medium text-monastery-800 mb-2">
+                        Donation Amount (USD)
+                      </label>
+                      
+                      {/* Suggested Amounts */}
+                      <div className="grid grid-cols-3 gap-2 mb-3">
+                        {[25, 50, 100].map((amount) => (
+                          <button
+                            key={amount}
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, donationAmount: amount }))}
+                            className={`p-2 rounded-lg border text-sm font-medium transition-colors ${
+                              formData.donationAmount === amount
+                                ? 'bg-primary-500 text-white border-primary-500'
+                                : 'bg-white text-monastery-700 border-monastery-200 hover:border-primary-300 hover:bg-primary-50'
+                            }`}
+                          >
+                            ${amount}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Custom Amount */}
+                      <div className="flex items-center space-x-2">
+                        <span className="text-sm text-monastery-600">Custom:</span>
+                        <Input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={formData.donationAmount || ''}
+                          onChange={(e) => setFormData(prev => ({ ...prev, donationAmount: parseInt(e.target.value) || 0 }))}
+                          placeholder="Enter amount"
+                          className="w-32"
+                        />
+                      </div>
+
+                      {formData.donationAmount > 0 && (
+                        <div className="text-xs text-monastery-600 mt-2">
+                          💡 After booking, you'll receive payment instructions and can upload your receipt for verification.
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
               

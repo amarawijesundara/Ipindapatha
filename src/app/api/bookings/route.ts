@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { bookingDate, bookingTime, eventNote, sessionId, guestName, guestEmail, guestPhone, isRecurring } = body
+    const { bookingDate, bookingTime, eventNote, sessionId, guestName, guestEmail, guestPhone, isRecurring, offeringType, donationAmount } = body
 
     // Basic validation
     if (!bookingDate || !bookingTime) {
@@ -75,6 +75,24 @@ export async function POST(request: NextRequest) {
         { error: 'Validation failed', message: 'Booking date and time are required' },
         { status: 400 }
       )
+    }
+
+    // Validate offering type and donation amount
+    if (offeringType && !['food_preparation', 'monetary_donation'].includes(offeringType)) {
+      return NextResponse.json(
+        { error: 'Validation failed', message: 'Invalid offering type' },
+        { status: 400 }
+      )
+    }
+
+    // If monetary donation, validate donation amount
+    if (offeringType === 'monetary_donation') {
+      if (!donationAmount || donationAmount <= 0) {
+        return NextResponse.json(
+          { error: 'Validation failed', message: 'Valid donation amount is required for monetary donations' },
+          { status: 400 }
+        )
+      }
     }
 
     // Try to get user from authentication
@@ -118,8 +136,50 @@ export async function POST(request: NextRequest) {
       guestName: guestName || undefined,
       guestEmail: guestEmail || undefined,
       guestPhone: guestPhone || undefined,
-      isRecurring: isRecurring || false
+      isRecurring: isRecurring || false,
+      offeringType: offeringType || 'food_preparation'
     })
+
+    // Create payment record if monetary donation
+    let paymentRecord = null
+    if (offeringType === 'monetary_donation' && donationAmount && donationAmount > 0) {
+      try {
+        const { PaymentService } = await import('@/lib/payments')
+        
+        // Calculate payment deadline (2 weeks before booking date)
+        const bookingDateObj = new Date(bookingDate)
+        const paymentDeadline = PaymentService.calculatePaymentDeadline(bookingDateObj)
+        
+        // Check if payment deadline has already passed
+        const now = new Date()
+        if (paymentDeadline < now) {
+          return NextResponse.json(
+            { 
+              error: 'Payment deadline passed', 
+              message: 'The payment deadline for this booking has already passed. Payment must be made at least 2 weeks before the ceremony date.' 
+            },
+            { status: 400 }
+          )
+        }
+
+        // Create payment record
+        paymentRecord = await PaymentService.createPayment({
+          bookingId: booking.id,
+          tenantId,
+          userId: user.userId,
+          amount: parseFloat(donationAmount.toString()),
+          currency: 'USD',
+          paymentDeadline
+        })
+
+        if (!paymentRecord) {
+          console.error('Failed to create payment record for booking:', booking.id)
+        }
+      } catch (error) {
+        console.error('Error creating payment record:', error)
+        // Don't fail the booking if payment record creation fails
+      }
+    }
 
     // Clean up temporary reservation if sessionId provided
     if (sessionId) {
@@ -138,14 +198,20 @@ export async function POST(request: NextRequest) {
       ? 'Yearly recurring booking created successfully! This booking will automatically repeat every year on the same date and time.'
       : 'Booking created successfully'
 
-    return NextResponse.json(
-      { 
-        message: successMessage, 
-        booking,
-        isRecurring: isRecurring || false
-      },
-      { status: 201 }
-    )
+    // Build response data
+    const responseData: any = {
+      message: successMessage, 
+      booking,
+      isRecurring: isRecurring || false
+    }
+
+    // Add payment information if payment record was created
+    if (paymentRecord) {
+      responseData.payment = paymentRecord
+      responseData.message += ' Payment record created - please make payment by the deadline to confirm your booking.'
+    }
+
+    return NextResponse.json(responseData, { status: 201 })
 
   } catch (error: any) {
     console.error('Create booking error:', error)

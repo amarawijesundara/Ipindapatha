@@ -85,6 +85,7 @@ export interface Booking {
   booking_time: string
   event_note?: string
   status: 'pending' | 'confirmed' | 'cancelled'
+  offering_type: 'food_preparation' | 'monetary_donation'
   created_at: Date
   updated_at: Date
 }
@@ -149,6 +150,7 @@ export interface BookingCreateInput extends TenantAwareInput {
   bookingDate: string
   bookingTime: string
   eventNote?: string
+  offeringType?: 'food_preparation' | 'monetary_donation'
   guestName?: string
   guestEmail?: string
   guestPhone?: string
@@ -160,4 +162,62 @@ export interface AvailabilityCreateInput extends TenantAwareInput {
   timeSlot: string
   isAvailable?: boolean
   maxBookings?: number
+}
+
+// Payment System Types
+export interface BookingPayment {
+  id: number
+  booking_id: number
+  tenant_id: number
+  user_id: number
+  amount: number
+  currency: string
+  payment_deadline: Date
+  status: 'pending' | 'paid' | 'verified' | 'overdue' | 'cancelled'
+  paid_at?: Date
+  verified_at?: Date
+  verified_by?: number
+  notes?: string
+  created_at: Date
+  updated_at: Date
+}
+
+export interface PaymentReceipt {
+  id: number
+  payment_id: number
+  tenant_id: number
+  user_id: number
+  file_name: string
+  original_name: string
+  file_path: string
+  file_size: number
+  mime_type: string
+  status: 'pending' | 'approved' | 'rejected'
+  rejection_reason?: string
+  reviewed_at?: Date
+  reviewed_by?: number
+  created_at: Date
+  updated_at: Date
+}
+
+export interface PaymentCreateInput extends TenantAwareInput {
+  bookingId: number
+  userId: number
+  amount: number
+  currency?: string
+  paymentDeadline: Date
+}
+
+export interface ReceiptUploadInput extends TenantAwareInput {
+  paymentId: number
+  userId: number
+  file: File
+}
+
+export interface PaymentWithReceipts extends BookingPayment {
+  receipts: PaymentReceipt[]
+}
+
+export interface BookingWithPayment extends Booking {
+  bookingPayment?: PaymentWithReceipts
 }

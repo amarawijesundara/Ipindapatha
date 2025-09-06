@@ -61,6 +61,7 @@ export class BookingService {
         booking_time: booking.bookingTime.toISOString().substring(11, 19),
         event_note: booking.eventNote || undefined,
         status: booking.status as 'pending' | 'confirmed' | 'cancelled',
+        offering_type: booking.offeringType as 'food_preparation' | 'monetary_donation',
         created_at: booking.createdAt,
         updated_at: booking.updatedAt
       }))
@@ -99,6 +100,7 @@ export class BookingService {
         booking_time: booking.bookingTime.toISOString().substring(11, 19),
         event_note: booking.eventNote || undefined,
         status: booking.status as 'pending' | 'confirmed' | 'cancelled',
+        offering_type: booking.offeringType as 'food_preparation' | 'monetary_donation',
         created_at: booking.createdAt,
         updated_at: booking.updatedAt,
         username: booking.user.username,
@@ -111,7 +113,7 @@ export class BookingService {
   }
 
   // Create booking with tenant context (supports recurring bookings)
-  static async createBooking(bookingData: BookingCreateInput & { isRecurring?: boolean }): Promise<Booking | null> {
+  static async createBooking(bookingData: BookingCreateInput & { isRecurring?: boolean, offeringType?: 'food_preparation' | 'monetary_donation' }): Promise<Booking | null> {
     try {
       // Validate booking date
       const bookingDate = safeCreateDate(bookingData.bookingDate)
@@ -216,6 +218,7 @@ export class BookingService {
           bookingDate: bookingDate,
           bookingTime: bookingTime,
           eventNote: bookingData.eventNote,
+          offeringType: (bookingData as any).offeringType || 'food_preparation',
           status: bookingData.adminOverride ? 'confirmed' : 'pending'
         }
       })
@@ -228,6 +231,7 @@ export class BookingService {
         booking_time: booking.bookingTime.toISOString().substring(11, 19),
         event_note: booking.eventNote || undefined,
         status: booking.status as 'pending' | 'confirmed' | 'cancelled',
+        offering_type: booking.offeringType as 'food_preparation' | 'monetary_donation',
         created_at: booking.createdAt,
         updated_at: booking.updatedAt
       }

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import { useAuth } from '@/components/AuthContext'
 import { Container, StatsCard, Button, Card, CardContent, CardHeader, CardTitle } from '@/components/ui'
+import PaymentReceiptUpload from '@/components/PaymentReceiptUpload'
 
 interface Booking {
   id: number
@@ -12,8 +13,18 @@ interface Booking {
   booking_time: string
   event_note?: string
   status: 'pending' | 'confirmed' | 'cancelled'
+  offering_type?: 'food_preparation' | 'monetary_donation'
   created_at: string
   updated_at: string
+  payment?: {
+    id: number
+    amount: number
+    currency: string
+    payment_deadline: string
+    status: 'pending' | 'paid' | 'verified' | 'overdue' | 'cancelled'
+    paid_at?: string
+    verified_at?: string
+  }
 }
 
 interface UserBookingStats {
@@ -29,6 +40,13 @@ export default function MyAccount() {
   const [stats, setStats] = useState<UserBookingStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showPaymentUpload, setShowPaymentUpload] = useState(false)
+  const [selectedPayment, setSelectedPayment] = useState<{
+    paymentId: number
+    bookingId: number
+    amount: number
+    currency: string
+  } | null>(null)
 
   useEffect(() => {
     fetchUserData()
@@ -45,15 +63,36 @@ export default function MyAccount() {
 
       if (bookingsResponse.ok) {
         const bookingsData = await bookingsResponse.json()
-        const userBookings = bookingsData.bookings || []
-        setBookings(userBookings)
+        let userBookings = bookingsData.bookings || []
+        
+        // Fetch payment information for bookings with monetary donations
+        const bookingsWithPayments = await Promise.all(
+          userBookings.map(async (booking: Booking) => {
+            if (booking.offering_type === 'monetary_donation') {
+              try {
+                const paymentResponse = await fetch(`/api/bookings/payments?bookingId=${booking.id}`, {
+                  credentials: 'include',
+                })
+                if (paymentResponse.ok) {
+                  const paymentData = await paymentResponse.json()
+                  return { ...booking, payment: paymentData.payment }
+                }
+              } catch (error) {
+                console.error('Failed to fetch payment for booking', booking.id, error)
+              }
+            }
+            return booking
+          })
+        )
+        
+        setBookings(bookingsWithPayments)
         
         // Calculate stats from bookings data
         const stats = {
-          totalBookings: userBookings.length,
-          pendingBookings: userBookings.filter((b: Booking) => b.status === 'pending').length,
-          confirmedBookings: userBookings.filter((b: Booking) => b.status === 'confirmed').length,
-          cancelledBookings: userBookings.filter((b: Booking) => b.status === 'cancelled').length,
+          totalBookings: bookingsWithPayments.length,
+          pendingBookings: bookingsWithPayments.filter((b: Booking) => b.status === 'pending').length,
+          confirmedBookings: bookingsWithPayments.filter((b: Booking) => b.status === 'confirmed').length,
+          cancelledBookings: bookingsWithPayments.filter((b: Booking) => b.status === 'cancelled').length,
         }
         setStats(stats)
       } else {
@@ -101,6 +140,55 @@ export default function MyAccount() {
 
   const formatTime = (timeString: string) => {
     return timeString.length > 5 ? timeString.substring(0, 5) : timeString
+  }
+
+  const getPaymentStatusColor = (status: string) => {
+    switch (status) {
+      case 'verified': return 'bg-success-50 text-success-700 border-success-200'
+      case 'paid': return 'bg-blue-50 text-blue-700 border-blue-200'
+      case 'pending': return 'bg-warning-50 text-warning-700 border-warning-200'
+      case 'overdue': return 'bg-error-50 text-error-700 border-error-200'
+      case 'cancelled': return 'bg-secondary-50 text-secondary-700 border-secondary-200'
+      default: return 'bg-secondary-50 text-secondary-700 border-secondary-200'
+    }
+  }
+
+  const getOfferingTypeIcon = (offeringType?: string) => {
+    return offeringType === 'monetary_donation' ? '💝' : '🍽️'
+  }
+
+  const getOfferingTypeLabel = (offeringType?: string) => {
+    return offeringType === 'monetary_donation' ? 'Monetary Donation' : 'Food Preparation'
+  }
+
+  const formatCurrency = (amount: number, currency: string = 'USD') => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency
+    }).format(amount)
+  }
+
+  const isPaymentOverdue = (paymentDeadline: string) => {
+    return new Date(paymentDeadline) < new Date()
+  }
+
+  const handleOpenPaymentUpload = (booking: Booking) => {
+    if (booking.payment) {
+      setSelectedPayment({
+        paymentId: booking.payment.id,
+        bookingId: booking.id,
+        amount: booking.payment.amount,
+        currency: booking.payment.currency
+      })
+      setShowPaymentUpload(true)
+    }
+  }
+
+  const handlePaymentUploadSuccess = (receiptData: any) => {
+    // Refresh bookings data to show updated payment status
+    fetchUserData()
+    setShowPaymentUpload(false)
+    setSelectedPayment(null)
   }
 
   // Get recent bookings (last 5)
@@ -292,28 +380,78 @@ export default function MyAccount() {
                       {recentBookings.map((booking) => (
                         <div
                           key={booking.id}
-                          className="flex items-center justify-between p-4 bg-lotus-50 rounded-lg border border-monastery-100"
+                          className="p-4 bg-lotus-50 rounded-lg border border-monastery-100"
                         >
-                          <div className="flex-1">
-                            <div className="flex items-center space-x-3">
-                              <div>
-                                <p className="font-semibold text-monastery-900">
-                                  {formatDate(booking.booking_date)} at {formatTime(booking.booking_time)}
-                                </p>
-                                {booking.event_note && (
-                                  <p className="text-sm text-monastery-600 mt-1">
-                                    {booking.event_note}
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center space-x-2 mb-2">
+                                <span className="text-lg">{getOfferingTypeIcon(booking.offering_type)}</span>
+                                <div>
+                                  <p className="font-semibold text-monastery-900">
+                                    {formatDate(booking.booking_date)} at {formatTime(booking.booking_time)}
                                   </p>
-                                )}
+                                  <p className="text-xs text-monastery-600">
+                                    {getOfferingTypeLabel(booking.offering_type)}
+                                  </p>
+                                </div>
                               </div>
+                              
+                              {booking.event_note && (
+                                <p className="text-sm text-monastery-600 mt-1">
+                                  {booking.event_note}
+                                </p>
+                              )}
+                              
+                              {/* Payment Information */}
+                              {booking.offering_type === 'monetary_donation' && booking.payment && (
+                                <div className="mt-3 p-2 bg-white rounded border border-monastery-200">
+                                  <div className="flex items-center justify-between text-sm">
+                                    <span className="text-monastery-600">
+                                      Payment: {formatCurrency(booking.payment.amount, booking.payment.currency)}
+                                    </span>
+                                    <span className={`px-2 py-1 rounded text-xs font-medium border ${
+                                      getPaymentStatusColor(booking.payment.status)
+                                    }`}>
+                                      {booking.payment.status.charAt(0).toUpperCase() + booking.payment.status.slice(1)}
+                                    </span>
+                                  </div>
+                                  
+                                  {booking.payment.status === 'pending' && (
+                                    <div className="mt-1 text-xs text-monastery-600">
+                                      Deadline: {formatDate(booking.payment.payment_deadline)}
+                                      {isPaymentOverdue(booking.payment.payment_deadline) && (
+                                        <span className="text-error-600 font-medium"> (Overdue)</span>
+                                      )}
+                                    </div>
+                                  )}
+                                  
+                                  {booking.payment.verified_at && (
+                                    <div className="mt-1 text-xs text-success-600">
+                                      ✅ Verified on {formatDate(booking.payment.verified_at)}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                          </div>
-                          <div className="flex items-center space-x-3">
-                            <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
-                              getStatusColor(booking.status)
-                            }`}>
-                              {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
-                            </span>
+                            
+                            <div className="flex flex-col items-end space-y-2">
+                              <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                                getStatusColor(booking.status)
+                              }`}>
+                                {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
+                              </span>
+                              
+                              {/* Payment Action Button */}
+                              {booking.offering_type === 'monetary_donation' && booking.payment && 
+                               (booking.payment.status === 'pending' || booking.payment.status === 'paid') && (
+                                <button
+                                  onClick={() => handleOpenPaymentUpload(booking)}
+                                  className="text-xs px-2 py-1 bg-primary-100 text-primary-700 rounded hover:bg-primary-200 transition-colors"
+                                >
+                                  {booking.payment.status === 'pending' ? 'Upload Receipt' : 'Update Receipt'}
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -440,6 +578,23 @@ export default function MyAccount() {
               )}
             </div>
           </div>
+
+          {/* Payment Receipt Upload Modal */}
+          {showPaymentUpload && selectedPayment && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="w-full max-w-lg">
+                <PaymentReceiptUpload
+                  paymentId={selectedPayment.paymentId}
+                  bookingId={selectedPayment.bookingId}
+                  onUploadSuccess={handlePaymentUploadSuccess}
+                  onCancel={() => {
+                    setShowPaymentUpload(false)
+                    setSelectedPayment(null)
+                  }}
+                />
+              </div>
+            </div>
+          )}
         </Container>
       </div>
     </ProtectedRoute>
