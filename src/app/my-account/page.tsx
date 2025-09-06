@@ -6,6 +6,7 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import { useAuth } from '@/components/AuthContext'
 import { Container, StatsCard, Button, Card, CardContent, CardHeader, CardTitle } from '@/components/ui'
 import PaymentReceiptUpload from '@/components/PaymentReceiptUpload'
+import { parseBookingDate } from '@/lib/utils/dateValidation'
 
 interface Booking {
   id: number
@@ -130,7 +131,24 @@ export default function MyAccount() {
   }
 
   const formatDate = (dateString: string | Date) => {
-    const date = new Date(dateString)
+    let date: Date | null
+    
+    if (dateString instanceof Date) {
+      date = dateString
+    } else if (typeof dateString === 'string') {
+      // Try to parse as booking date first (YYYY-MM-DD format)
+      date = parseBookingDate(dateString)
+      if (!date) {
+        // Fallback to regular Date parsing for other formats
+        date = new Date(dateString)
+        if (isNaN(date.getTime())) {
+          return 'Invalid Date'
+        }
+      }
+    } else {
+      return 'Invalid Date'
+    }
+    
     return date.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
@@ -199,12 +217,31 @@ export default function MyAccount() {
   // Get upcoming bookings (confirmed, future dates)
   const upcomingBookings = bookings
     .filter(booking => {
-      const bookingDate = new Date(booking.booking_date)
+      const bookingDate = typeof booking.booking_date === 'string' 
+        ? parseBookingDate(booking.booking_date) || new Date(booking.booking_date)
+        : booking.booking_date
+      
       const today = new Date()
       today.setHours(0, 0, 0, 0)
-      return booking.status === 'confirmed' && bookingDate >= today
+      
+      if (bookingDate instanceof Date && !isNaN(bookingDate.getTime())) {
+        const compareDate = new Date(bookingDate)
+        compareDate.setHours(0, 0, 0, 0)
+        return booking.status === 'confirmed' && compareDate >= today
+      }
+      
+      return false
     })
-    .sort((a, b) => new Date(a.booking_date).getTime() - new Date(b.booking_date).getTime())
+    .sort((a, b) => {
+      const dateA = typeof a.booking_date === 'string' 
+        ? parseBookingDate(a.booking_date) || new Date(a.booking_date)
+        : a.booking_date
+      const dateB = typeof b.booking_date === 'string' 
+        ? parseBookingDate(b.booking_date) || new Date(b.booking_date)
+        : b.booking_date
+      
+      return dateA.getTime() - dateB.getTime()
+    })
     .slice(0, 3)
 
   if (loading) {

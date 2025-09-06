@@ -23,12 +23,20 @@ export function isValidDateString(dateString: string | null | undefined): boolea
 
 /**
  * Safely creates a Date object from a string, returns null if invalid
+ * Prefers timezone-safe parsing for booking dates
  */
 export function safeCreateDate(dateString: string | null | undefined): Date | null {
   if (!isValidDateString(dateString)) {
     return null
   }
   
+  // Try timezone-safe parsing first for YYYY-MM-DD format
+  const parsedDate = parseBookingDate(dateString!)
+  if (parsedDate) {
+    return parsedDate
+  }
+  
+  // Fallback to regular Date parsing for other formats
   const date = new Date(dateString!)
   return isNaN(date.getTime()) ? null : date
 }
@@ -107,9 +115,54 @@ export function validateDateFilters(options: DateFilterOptions): {
 
 /**
  * Formats a date to ISO string format (YYYY-MM-DD) for consistent database queries
+ * Uses local timezone to prevent date shifts
  */
 export function formatDateForDatabase(date: Date): string {
-  return date.toISOString().split('T')[0]
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+/**
+ * Formats a date for booking submissions (timezone-safe)
+ * Ensures the selected date is preserved exactly as chosen by the user
+ */
+export function formatDateForBooking(date: Date): string {
+  return formatDateForDatabase(date)
+}
+
+/**
+ * Parses a booking date string back to a Date object
+ * Creates the date in local timezone to prevent shifts
+ */
+export function parseBookingDate(dateString: string): Date | null {
+  if (!dateString || typeof dateString !== 'string') {
+    return null
+  }
+
+  // Match YYYY-MM-DD format
+  const dateMatch = dateString.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (!dateMatch) {
+    return null
+  }
+
+  const [, year, month, day] = dateMatch
+  const yearNum = parseInt(year, 10)
+  const monthNum = parseInt(month, 10) - 1 // Month is 0-indexed
+  const dayNum = parseInt(day, 10)
+
+  // Create date in local timezone
+  const date = new Date(yearNum, monthNum, dayNum)
+  
+  // Verify the date components match (handles invalid dates like Feb 31)
+  if (date.getFullYear() !== yearNum || 
+      date.getMonth() !== monthNum || 
+      date.getDate() !== dayNum) {
+    return null
+  }
+
+  return date
 }
 
 /**

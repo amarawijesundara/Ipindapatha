@@ -6,6 +6,7 @@ import { Button, Input, Card, CardContent, CardHeader, CardTitle } from '@/compo
 import { useAuth } from '@/components/AuthContext'
 import BookingDetailsView from '@/components/BookingDetailsView'
 import UserSelector from '@/components/UserSelector'
+import { formatDateForBooking } from '@/lib/utils/dateValidation'
 
 interface DhaneBookingModalProps {
   selectedDate: Date | null
@@ -123,7 +124,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
       // Store booking data with minimal info - form completion can happen after auth
       localStorage.setItem('pendingBooking', JSON.stringify({
         ...formData, // Include any partial form data
-        date: selectedDate?.toISOString().split('T')[0],
+        date: selectedDate ? formatDateForBooking(selectedDate) : '',
         times: selectedTimes,
         sessionId
       }))
@@ -141,7 +142,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
     if (!selectedDate) return
     
     try {
-      const dateStr = selectedDate.toISOString().split('T')[0]
+      const dateStr = formatDateForBooking(selectedDate)
       const response = await fetch(`/api/bookings/availability?date=${dateStr}&sessionId=${sessionId}`, {
         credentials: 'include'
       })
@@ -176,7 +177,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          date: selectedDate?.toISOString().split('T')[0],
+          date: selectedDate ? formatDateForBooking(selectedDate) : '',
           timeSlots, // Changed to array
           sessionId
         })
@@ -273,7 +274,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
       // Store complete form data and show auth prompt
       localStorage.setItem('pendingBooking', JSON.stringify({
         ...formData,
-        date: selectedDate.toISOString().split('T')[0],
+        date: formatDateForBooking(selectedDate),
         times: selectedTimes,
         sessionId
       }))
@@ -296,7 +297,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
         const bookingData = {
           userId: targetUserId,
           tenantId: user?.tenant_id || 1,
-          bookingDate: selectedDate?.toISOString().split('T')[0],
+          bookingDate: selectedDate ? formatDateForBooking(selectedDate) : '',
           bookingTime: timeSlot,
           eventNote: formData.eventNote || `${isRecurring ? 'Yearly ' : ''}Dhane offering ceremony - ${
             isAdmin && selectedTargetUser ? selectedTargetUser.username : 
@@ -356,7 +357,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              date: selectedDate?.toISOString().split('T')[0],
+              date: selectedDate ? formatDateForBooking(selectedDate) : '',
               timeSlots: selectedTimes,
               sessionId
             })
@@ -401,7 +402,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
     // Store current form data
     localStorage.setItem('pendingBooking', JSON.stringify({
       ...formData,
-      date: selectedDate?.toISOString().split('T')[0],
+      date: selectedDate ? formatDateForBooking(selectedDate) : '',
       times: selectedTimes, // Updated to array
       sessionId
     }))
@@ -437,7 +438,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            date: selectedDate?.toISOString().split('T')[0],
+            date: selectedDate ? formatDateForBooking(selectedDate) : '',
             timeSlots: selectedTimes,
             sessionId
           })

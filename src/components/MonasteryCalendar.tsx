@@ -5,6 +5,7 @@ import Calendar from 'react-calendar'
 import { Button, Card, CardContent, CardHeader, CardTitle, Loading } from '@/components/ui'
 import { BookingAvailability } from '@/types'
 import { useAuth } from '@/components/AuthContext'
+import { formatDateForDatabase } from '@/lib/utils/dateValidation'
 import 'react-calendar/dist/Calendar.css'
 
 interface MonasteryCalendarProps {
@@ -41,9 +42,9 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
     const month = viewDate.getMonth()
     
     // Get start of previous month
-    const startDate = new Date(year, month - 1, 1).toISOString().split('T')[0]
+    const startDate = formatDateForDatabase(new Date(year, month - 1, 1))
     // Get end of next month
-    const endDate = new Date(year, month + 2, 0).toISOString().split('T')[0]
+    const endDate = formatDateForDatabase(new Date(year, month + 2, 0))
     
     return { startDate, endDate, cacheKey: `${year}-${month}` }
   }
@@ -107,11 +108,11 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
       // Ensure we get the date string correctly regardless of format
       let dateStr: string
       if (slot.date instanceof Date) {
-        dateStr = slot.date.toISOString().split('T')[0]
+        dateStr = formatDateForDatabase(slot.date)
       } else if (typeof slot.date === 'string') {
         dateStr = slot.date.split('T')[0]
       } else {
-        dateStr = new Date(slot.date).toISOString().split('T')[0]
+        dateStr = formatDateForDatabase(new Date(slot.date))
       }
       
       const existing = dayMap.get(dateStr)
@@ -135,7 +136,7 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
   }
 
   const formatDate = (date: Date): string => {
-    return date.toISOString().split('T')[0]
+    return formatDateForDatabase(date)
   }
 
   const getDayAvailability = (date: Date): DayAvailability | null => {
@@ -181,7 +182,7 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
         }
         
         if (slot.date instanceof Date) {
-          slotDateStr = slot.date.toISOString().split('T')[0]
+          slotDateStr = formatDateForDatabase(slot.date)
         } else if (typeof slot.date === 'string') {
           // Handle both 'YYYY-MM-DD' and 'YYYY-MM-DDTHH:MM:SS.sssZ' formats
           if (slot.date.includes('T')) {
@@ -195,7 +196,7 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
           if (isNaN(parsedDate.getTime())) {
             return false
           }
-          slotDateStr = parsedDate.toISOString().split('T')[0]
+          slotDateStr = formatDateForDatabase(parsedDate)
         }
         
         // Ensure both strings are properly formatted
@@ -283,7 +284,7 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
     
     const dateStr = formatDate(date)
     const daySlots = availability.filter(slot => {
-      const slotDate = new Date(slot.date).toISOString().split('T')[0]
+      const slotDate = formatDateForDatabase(new Date(slot.date))
       return slotDate === dateStr
     })
     

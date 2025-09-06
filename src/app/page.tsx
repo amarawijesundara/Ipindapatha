@@ -6,6 +6,7 @@ import { useAuth } from '@/components/AuthContext'
 import { Container, Button } from '@/components/ui'
 import MonasteryCalendar from '@/components/MonasteryCalendar'
 import DhaneBookingModal from '@/components/DhaneBookingModal'
+import { parseBookingDate } from '@/lib/utils/dateValidation'
 
 export default function Home() {
   const { user } = useAuth()
@@ -20,9 +21,15 @@ export default function Home() {
       if (pendingBooking) {
         try {
           const bookingData = JSON.parse(pendingBooking)
-          // Set the selected date and open booking modal
-          setSelectedDate(new Date(bookingData.date))
-          setShowBookingModal(true)
+          // Set the selected date and open booking modal using timezone-safe parsing
+          const parsedDate = parseBookingDate(bookingData.date) || new Date(bookingData.date)
+          if (parsedDate && !isNaN(parsedDate.getTime())) {
+            setSelectedDate(parsedDate)
+            setShowBookingModal(true)
+          } else {
+            console.error('Invalid date in pending booking:', bookingData.date)
+            localStorage.removeItem('pendingBooking')
+          }
         } catch (error) {
           console.error('Error parsing pending booking:', error)
           localStorage.removeItem('pendingBooking')
