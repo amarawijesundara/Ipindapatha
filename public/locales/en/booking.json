@@ -1,0 +1,112 @@
+{
+  "title": "Monastery Dhane Booking",
+  "subtitle": "Book your offering ceremony with devotion",
+  "welcome": "Welcome, {{username}}",
+  "selectDate": "Select a date below to book your Dhane offering ceremony",
+  "signInRequired": "Please sign in to book your Dhane offering ceremony",
+  
+  "modal": {
+    "title": "Book Dhane Offering",
+    "loadingSlots": "Loading available times...",
+    "noSlotsAvailable": "No Time Slots Available",
+    "noSlotsMessage": "This date has no available time slots for booking.",
+    "allSlotsBooked": "All Time Slots Booked",
+    "allSlotsMessage": "All available time slots for this date are currently booked.",
+    "signInToComplete": "Sign In to Complete Booking",
+    "slotsReserved_one": "Your {{count}} slot is temporarily reserved for {{time}}",
+    "slotsReserved_other": "Your {{count}} slots are temporarily reserved for {{time}}",
+    "bookingDetails": "Your Booking Details",
+    "signInExisting": "Sign In to Existing Account",
+    "createNew": "Create New Account",
+    "backToForm": "Back to Form"
+  },
+  
+  "form": {
+    "personalInfo": "Your Information",
+    "fullName": "Full Name",
+    "fullNamePlaceholder": "Enter your full name",
+    "emailAddress": "Email Address",
+    "emailPlaceholder": "Enter your email address",
+    "phoneNumber": "Phone Number (Optional)",
+    "phonePlaceholder": "Enter your phone number",
+    "specialRequests": "Special Requests or Notes (Optional)",
+    "specialRequestsPlaceholder": "Any special requirements or dedication message for the Dhane offering...",
+    
+    "offeringType": "Offering Type",
+    "foodPreparation": "Prepare Food Personally",
+    "foodPreparationDesc": "I will personally prepare and bring food offerings for the ceremony (traditional approach)",
+    "monetaryDonation": "Make Monetary Donation",
+    "monetaryDonationDesc": "I will make a monetary donation for the monastery to arrange the offerings",
+    
+    "donationDetails": "Donation Details",
+    "paymentDeadline": "Payment Deadline: {{date}}",
+    "paymentDeadlineDesc": "Payment must be made at least 2 weeks before the ceremony date.",
+    "paymentDeadlinePassed": "Payment deadline has passed. Please choose food preparation or select a different date.",
+    "donationAmount": "Donation Amount (USD)",
+    "customAmount": "Custom:",
+    "amountPlaceholder": "Enter amount",
+    "receiptUploadNote": "💡 After booking, you'll receive payment instructions and can upload your receipt for verification.",
+    
+    "timeSlots": "Select Time Slots ({{count}} selected)",
+    "recurringBooking": "📅 Book This Date Every Year",
+    "recurringDescription": "Make this a yearly recurring booking for all selected time slots. These will be automatically reserved for you every year.",
+    "recurringConfirmation": "This will reserve {{date}} at {{times}} annually."
+  },
+  
+  "timeSlot": {
+    "myReservation": "My Reservation",
+    "beingBooked": "Being Booked",
+    "booked": "Booked"
+  },
+  
+  "summary": {
+    "title": "Booking Summary ({{count}} time slot)",
+    "title_plural": "Booking Summary ({{count}} time slots)",
+    "date": "Date:",
+    "time": "Time:",
+    "times": "Times:",
+    "event": "Event:",
+    "devotee": "Devotee:",
+    "email": "Email:",
+    "totalDuration": "Total Duration:",
+    "hours_one": "~{{count}} hour",
+    "hours_other": "~{{count}} hours",
+    "recurringNote": "📅 Recurring: All selected time slots will repeat annually on the same date",
+    "eventName": "{{recurring}}Dhane Offering Ceremony",
+    "recurring": "Yearly "
+  },
+  
+  "admin": {
+    "controls": "👑 Admin Booking Controls",
+    "bookForUser": "Book for User",
+    "selectUser": "Select user to book for...",
+    "selectUserRequired": "Please select a user to book for",
+    "overrideCapacity": "Override capacity restrictions",
+    "overrideWarning": "⚠️ Admin override will bypass normal booking restrictions and capacity limits"
+  },
+  
+  "actions": {
+    "confirmBooking_one": "Confirm {{count}} Booking",
+    "confirmBooking_other": "Confirm {{count}} Bookings",
+    "continueToSignIn": "Continue to Sign In",
+    "processing_one": "Processing {{count}} booking...",
+    "processing_other": "Processing {{count}} bookings...",
+    "bookNow": "Book Now"
+  },
+  
+  "errors": {
+    "validationFailed": "Please fill in your name and email address",
+    "paymentDeadlinePassed": "Payment deadline has passed for monetary donations. Please choose food preparation or select a different date.",
+    "invalidDonationAmount": "Please enter a valid donation amount",
+    "noTimeSlotsSelected": "Please select at least one time slot",
+    "reservationFailed": "Unable to reserve selected slots. Some may have been taken by other users.",
+    "bookingFailed": "Failed to create bookings. Please try again.",
+    "partialSuccess": "Created {{successCount}} bookings successfully, but {{failureCount}} failed. Please check your bookings and try again for the failed slots."
+  },
+  
+  "success": {
+    "bookingCreated": "Booking created successfully",
+    "recurringBookingCreated": "Yearly recurring booking created successfully! This booking will automatically repeat every year on the same date and time.",
+    "paymentCreated": "Payment record created - please make payment by the deadline to confirm your booking."
+  }
+}

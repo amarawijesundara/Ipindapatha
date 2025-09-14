@@ -1,11 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useAuth } from '@/components/AuthContext'
+import { useRouter } from 'next/navigation'
 import { Button, Card, CardContent, CardHeader, CardTitle } from '@/components/ui'
 
 export default function SettingsPage() {
+  const { getAuthToken, refreshToken } = useAuth()
+  const router = useRouter()
   const [settings, setSettings] = useState({
-    platformName: 'Monastery Dhane Booking',
     maintenanceMode: false,
     allowRegistrations: true,
     requireEmailVerification: false,
@@ -18,14 +21,17 @@ export default function SettingsPage() {
   })
 
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const handleSave = async () => {
     setLoading(true)
+    setError(null)
     
     try {
-      const token = localStorage.getItem('token')
+      let token = await getAuthToken()
       if (!token) {
-        alert('Please login to save settings')
+        setError('Authentication required. Please log in.')
+        router.push('/login')
         return
       }
 
@@ -38,15 +44,48 @@ export default function SettingsPage() {
         body: JSON.stringify({ settings })
       })
 
+      if (response.status === 401 || response.status === 403) {
+        // Try to refresh token
+        const refreshed = await refreshToken()
+        if (refreshed) {
+          // Retry with fresh token
+          token = await getAuthToken()
+          if (token) {
+            const retryResponse = await fetch('/api/admin/settings', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ settings })
+            })
+            
+            if (retryResponse.ok) {
+              alert('Settings saved successfully!')
+              return
+            } else {
+              const errorData = await retryResponse.json()
+              setError(`Failed to save settings: ${errorData.error || errorData.message}`)
+              return
+            }
+          }
+        }
+        
+        // If refresh failed, redirect to login
+        setError('Session expired. Please log in again.')
+        router.push('/login')
+        return
+      }
+
       if (response.ok) {
         alert('Settings saved successfully!')
       } else {
-        const error = await response.json()
-        alert(`Failed to save settings: ${error.message}`)
+        const errorData = await response.json()
+        setError(`Failed to save settings: ${errorData.error || errorData.message}`)
       }
     } catch (error) {
       console.error('Failed to save settings:', error)
-      alert('Failed to save settings')
+      setError('Failed to save settings. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -54,7 +93,6 @@ export default function SettingsPage() {
 
   const handleReset = () => {
     setSettings({
-      platformName: 'Monastery Dhane Booking',
       maintenanceMode: false,
       allowRegistrations: true,
       requireEmailVerification: false,
@@ -86,6 +124,12 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {error && (
+        <div className="p-4 rounded-lg bg-red-50 text-red-800 border border-red-200">
+          {error}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* General Settings */}
         <Card>
@@ -93,16 +137,11 @@ export default function SettingsPage() {
             <CardTitle>General Settings</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-monastery-800 mb-2">
-                Platform Name
-              </label>
-              <input
-                type="text"
-                value={settings.platformName}
-                onChange={(e) => setSettings({ ...settings, platformName: e.target.value })}
-                className="w-full px-3 py-2 border border-monastery-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-              />
+            <div className="bg-monastery-50 border border-monastery-200 rounded-lg p-4 mb-4">
+              <div className="text-sm text-monastery-700">
+                <strong>Note:</strong> Site name and branding can be managed through the 
+                <strong> Content Management</strong> section. This settings page is for system configuration only.
+              </div>
             </div>
 
             <div className="flex items-center justify-between">

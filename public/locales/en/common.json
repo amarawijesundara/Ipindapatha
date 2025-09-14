@@ -1,0 +1,89 @@
+{
+  "appName": "JWT Auth",
+  "navigation": {
+    "home": "Home",
+    "myAccount": "My Account",
+    "dashboard": "Dashboard",
+    "admin": "Admin",
+    "signIn": "Sign In",
+    "signUp": "Sign Up",
+    "logout": "Logout"
+  },
+  "buttons": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "submit": "Submit",
+    "continue": "Continue",
+    "back": "Back",
+    "close": "Close",
+    "confirm": "Confirm",
+    "retry": "Retry",
+    "loading": "Loading...",
+    "viewAll": "View All",
+    "selectAll": "Select All Available",
+    "clearAll": "Clear All",
+    "upload": "Upload",
+    "remove": "Remove File"
+  },
+  "status": {
+    "pending": "Pending",
+    "confirmed": "Confirmed",
+    "cancelled": "Cancelled",
+    "completed": "Completed",
+    "active": "Active",
+    "inactive": "Inactive",
+    "success": "Success",
+    "error": "Error",
+    "loading": "Loading",
+    "available": "Available",
+    "unavailable": "Unavailable",
+    "booked": "Booked"
+  },
+  "time": {
+    "today": "Today",
+    "tomorrow": "Tomorrow",
+    "yesterday": "Yesterday",
+    "thisWeek": "This Week",
+    "nextWeek": "Next Week",
+    "thisMonth": "This Month",
+    "nextMonth": "Next Month"
+  },
+  "language": {
+    "current": "English",
+    "switch": "Switch Language",
+    "english": "English",
+    "sinhala": "සිංහල"
+  },
+  "validation": {
+    "required": "This field is required",
+    "email": "Please enter a valid email address",
+    "password": "Password must be at least 6 characters",
+    "confirmPassword": "Passwords must match",
+    "phoneNumber": "Please enter a valid phone number"
+  },
+  "messages": {
+    "success": "Operation completed successfully",
+    "error": "Something went wrong. Please try again.",
+    "noData": "No data available",
+    "loading": "Loading...",
+    "connectionError": "Connection error. Please check your internet connection."
+  },
+  "home": {
+    "title": "Monastery Dhane Booking",
+    "subtitle": "Book your offering ceremony with devotion",
+    "welcomeUser": "Welcome, {{username}}",
+    "selectDatePrompt": "Select a date below to book your Dhane offering ceremony",
+    "signInPrompt": "Please sign in to book your Dhane offering ceremony",
+    "aboutTitle": "About Dhane Offerings",
+    "aboutDescription": "Dhane is a Buddhist practice of offering food and necessities to monks. It's a meritorious act that brings spiritual benefits to the devotee and supports the monastic community.",
+    "bookCeremony": "Book Your Ceremony",
+    "bookCeremonyDesc": "Select an available date and time for your offering ceremony",
+    "prepareOfferings": "Prepare Offerings",
+    "prepareOfferingsDesc": "Bring rice, curry, fruits, and other necessities for the monks",
+    "earnMerit": "Earn Merit",
+    "earnMeritDesc": "Gain spiritual merit through your generous offering to the Sangha",
+    "viewMyAccount": "View My Account"
+  }
+}

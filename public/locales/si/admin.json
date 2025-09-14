@@ -1,0 +1,70 @@
+{
+  "navigation": {
+    "dashboard": "පුවරුව",
+    "users": "පරිශීලකයින්",
+    "bookings": "වෙන්කරවීම්",
+    "availability": "ලබා ගත හැකියාව",
+    "settings": "සිටුවම්",
+    "reports": "වාර්තා"
+  },
+  "dashboard": {
+    "title": "පරිපාලන පුවරුව",
+    "overview": "පද්ධති දළ විශ්ලේෂණය",
+    "stats": "සංඛ්‍යාලේඛන",
+    "recentActivity": "මෑත ක්‍රියාකාරකම්"
+  },
+  "users": {
+    "title": "පරිශීලක කළමනාකරණය",
+    "totalUsers": "මුළු පරිශීලකයින්",
+    "activeUsers": "සක්‍රීය පරිශීලකයින්",
+    "newUsers": "මේ මාසයේ නව පරිශීලකයින්",
+    "addUser": "නව පරිශීලකයෙකු එකතු කරන්න",
+    "editUser": "පරිශීලකයා සංස්කරණය කරන්න",
+    "deleteUser": "පරිශීලකයා මකන්න",
+    "userRoles": "පරිශීලක භූමිකාවන්"
+  },
+  "bookings": {
+    "title": "වෙන්කරවීම් කළමනාකරණය",
+    "totalBookings": "මුළු වෙන්කරවීම්",
+    "pendingBookings": "ප්‍රතීක්ෂාවේ වෙන්කරවීම්",
+    "confirmedBookings": "තහවුරු කළ වෙන්කරවීම්",
+    "todaysBookings": "අද දිනයේ වෙන්කරවීම්",
+    "viewBooking": "විස්තර බලන්න",
+    "editBooking": "වෙන්කරවීම සංස්කරණය කරන්න",
+    "confirmBooking": "වෙන්කරවීම තහවුරු කරන්න",
+    "cancelBooking": "වෙන්කරවීම අවලංගු කරන්න"
+  },
+  "availability": {
+    "title": "ලබා ගත හැකියාව කළමනාකරණය",
+    "manageSlots": "වේලා අවකාශ කළමනාකරණය",
+    "addSlots": "ලබා ගත හැකියාව එකතු කරන්න",
+    "blockDates": "දිනයන් අවහිර කරන්න",
+    "holidaySchedule": "නිවාඩු කාල වේලාව"
+  },
+  "settings": {
+    "title": "පද්ධති සිටුවම්",
+    "general": "සාමාන්‍ය සිටුවම්",
+    "notifications": "දැනුම්දීම් සිටුවම්",
+    "maintenance": "නඩත්තු ප්‍රකාරය",
+    "backup": "උපස්ථ සහ ප්‍රතිස්ථාපනය"
+  },
+  "actions": {
+    "view": "බලන්න",
+    "edit": "සංස්කරණය කරන්න",
+    "delete": "මකන්න",
+    "approve": "අනුමත කරන්න",
+    "reject": "ප්‍රතික්ෂේප කරන්න",
+    "export": "අපනයනය කරන්න",
+    "import": "ආනයනය කරන්න",
+    "backup": "උපස්ථ",
+    "restore": "ප්‍රතිස්ථාපනය"
+  },
+  "filters": {
+    "all": "සියල්ල",
+    "active": "සක්‍රීය",
+    "inactive": "අක්‍රීය",
+    "today": "අද",
+    "thisWeek": "මේ සතියේ",
+    "thisMonth": "මේ මාසයේ"
+  }
+}

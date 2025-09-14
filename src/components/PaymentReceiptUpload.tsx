@@ -264,7 +264,7 @@ export default function PaymentReceiptUpload({
             <div className="ml-3">
               <p className="text-sm font-medium text-green-800">Receipt uploaded successfully!</p>
               <p className="text-sm text-green-600 mt-1">
-                Your receipt has been submitted for review. You'll be notified once it's verified.
+                Your receipt has been submitted for review. You&apos;ll be notified once it&apos;s verified.
               </p>
             </div>
           </div>

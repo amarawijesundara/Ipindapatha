@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { AdminTable, Button, Loading } from '@/components/ui'
+import { Button, Loading } from '@/components/ui'
+import AdminTable from '@/components/ui/AdminTable'
 
 interface Tenant {
   id: number
@@ -49,11 +50,30 @@ export default function TenantsPage() {
 
   const fetchTenants = async () => {
     try {
-      const token = localStorage.getItem('token')
+      // First try to get a token for API calls
+      let token = localStorage.getItem('token')
+      
+      // If no localStorage token, try to get one from cookie-based auth
+      if (!token) {
+        try {
+          const tokenResponse = await fetch('/api/auth/token', {
+            credentials: 'include'
+          })
+          if (tokenResponse.ok) {
+            const tokenData = await tokenResponse.json()
+            token = tokenData.token
+          }
+        } catch (error) {
+          console.error('Failed to get token:', error)
+          return
+        }
+      }
+      
       if (!token) return
 
       const response = await fetch('/api/admin/tenants', {
         headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include'
       })
 
       if (response.ok) {
@@ -71,7 +91,24 @@ export default function TenantsPage() {
     setActionLoading(tenant.id)
     
     try {
-      const token = localStorage.getItem('token')
+      // Get token using the same method as fetchTenants
+      let token = localStorage.getItem('token')
+      
+      if (!token) {
+        try {
+          const tokenResponse = await fetch('/api/auth/token', {
+            credentials: 'include'
+          })
+          if (tokenResponse.ok) {
+            const tokenData = await tokenResponse.json()
+            token = tokenData.token
+          }
+        } catch (error) {
+          console.error('Failed to get token:', error)
+          return
+        }
+      }
+      
       if (!token) return
 
       const response = await fetch(`/api/admin/tenants/${tenant.id}`, {
@@ -80,6 +117,7 @@ export default function TenantsPage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
+        credentials: 'include',
         body: JSON.stringify({
           isActive: !tenant.is_active
         })

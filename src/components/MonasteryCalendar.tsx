@@ -148,27 +148,32 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
 
   const tileClassName = ({ date, view }: { date: Date; view: string }) => {
     if (view !== 'month') return ''
-    
-    
+
+
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    
-    // Create a new Date object instead of mutating the original
-    const dateComparison = new Date(date)
-    dateComparison.setHours(0, 0, 0, 0)
-    
+
+    // Create a new Date object and normalize it for consistent date handling
+    const normalizedDate = new Date(date)
+    normalizedDate.setHours(0, 0, 0, 0)
+
     const classes = []
-    const dateStr = formatDate(date)
-    
+    // Use the normalized date for formatting to ensure consistency
+    const dateStr = formatDate(normalizedDate)
+
     // Past dates - highest priority
-    if (dateComparison < today) {
+    if (normalizedDate < today) {
       classes.push('past-date')
       return classes.join(' ')
     }
-    
+
     // Selected date - add but don't return early
-    if (selectedDate && dateStr === formatDate(selectedDate)) {
-      classes.push('selected-date')
+    if (selectedDate) {
+      const normalizedSelectedDate = new Date(selectedDate)
+      normalizedSelectedDate.setHours(0, 0, 0, 0)
+      if (dateStr === formatDate(normalizedSelectedDate)) {
+        classes.push('selected-date')
+      }
     }
     
     // Get slots for this specific date with robust date matching
@@ -184,12 +189,12 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
         if (slot.date instanceof Date) {
           slotDateStr = formatDateForDatabase(slot.date)
         } else if (typeof slot.date === 'string') {
-          // Handle both 'YYYY-MM-DD' and 'YYYY-MM-DDTHH:MM:SS.sssZ' formats
-          if (slot.date.includes('T')) {
-            slotDateStr = slot.date.split('T')[0]
-          } else {
-            slotDateStr = slot.date
+          // Parse string date and convert to consistent local timezone format
+          const parsedDate = new Date(slot.date)
+          if (isNaN(parsedDate.getTime())) {
+            return false
           }
+          slotDateStr = formatDateForDatabase(parsedDate)
         } else {
           // Try to parse as date
           const parsedDate = new Date(slot.date)
@@ -234,25 +239,23 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
       })
       
       
-      // Simplified priority-based classification
-      if (recurringBookedSlots.length > 0 && availableSlots.length === 0) {
-        // All slots are blocked by recurring bookings
+      // Improved priority-based classification to handle mixed availability
+      if (recurringBookedSlots.length === daySlots.length) {
+        // ALL slots are blocked by recurring bookings
         classes.push('recurring-booked')
-      } else if (slotsFullyBooked.length === daySlots.length) {
-        // All slots are fully booked
+      } else if (slotsFullyBooked.length === daySlots.length && recurringBookedSlots.length === 0) {
+        // All slots are fully booked (but not by recurring bookings)
         classes.push('fully-booked')
-      } else if (slotsWithBookings.length > 0 || slotsFullyBooked.length > 0) {
-        // Some slots have bookings (partially booked day)
-        classes.push('partially-booked')
-      } else if (partiallyBookedSlots.length > 0) {
-        // Temporarily reserved slots
-        classes.push('partially-booked')
+      } else if (availableSlots.length === 0) {
+        // No available slots, but it's a mix of recurring blocked + booked
+        classes.push('fully-booked')
       } else if (availableSlots.length === daySlots.length) {
         // All slots are available
         classes.push('fully-available')
       } else {
-        // Mixed state, default to partially available
-        classes.push('partially-available')
+        // Mixed state: some available, some booked/blocked
+        // This includes cases where recurring bookings block some slots but others are available
+        classes.push('partially-booked')
       }
     } else {
       // No slot data found for this date - use fallback availability
@@ -273,16 +276,18 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
 
   const tileContent = ({ date, view }: { date: Date; view: string }) => {
     if (view !== 'month') return null
-    
+
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    const dateComparison = new Date(date)
-    dateComparison.setHours(0, 0, 0, 0)
-    
+
+    // Use same normalization approach as tileClassName for consistency
+    const normalizedDate = new Date(date)
+    normalizedDate.setHours(0, 0, 0, 0)
+
     // Don't show content for past dates
-    if (dateComparison < today) return null
-    
-    const dateStr = formatDate(date)
+    if (normalizedDate < today) return null
+
+    const dateStr = formatDate(normalizedDate)
     const daySlots = availability.filter(slot => {
       const slotDate = formatDateForDatabase(new Date(slot.date))
       return slotDate === dateStr
@@ -351,20 +356,20 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
 
   const handleDateClick = (value: Date | Date[] | null) => {
     if (!value || Array.isArray(value)) return
-    
+
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    
-    // Create a new Date object instead of mutating the original
-    const selectedDate = new Date(value)
-    selectedDate.setHours(0, 0, 0, 0)
-    
+
+    // Use same normalization approach for consistency with tileClassName and tileContent
+    const normalizedDate = new Date(value)
+    normalizedDate.setHours(0, 0, 0, 0)
+
     // Don't allow selecting past dates
-    if (selectedDate < today) return
-    
-    // Allow clicking on any future date - backend will generate availability dynamically
+    if (normalizedDate < today) return
+
+    // Pass the normalized date to ensure consistency with display logic
     // The booking modal will handle availability validation and show appropriate slots
-    onDateSelect?.(value)
+    onDateSelect?.(normalizedDate)
   }
 
   const handleActiveStartDateChange = ({ activeStartDate }: { activeStartDate: Date | null }) => {
@@ -468,14 +473,14 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
               tileDisabled={({ date }) => {
                 const today = new Date()
                 today.setHours(0, 0, 0, 0)
-                
-                // Create a new Date object instead of mutating the original
-                const dateComparison = new Date(date)
-                dateComparison.setHours(0, 0, 0, 0)
-                
+
+                // Use same normalization approach for consistency
+                const normalizedDate = new Date(date)
+                normalizedDate.setHours(0, 0, 0, 0)
+
                 // Only disable past dates - let all future dates be clickable
                 // The handleDateClick function will handle availability checking
-                return dateComparison < today
+                return normalizedDate < today
               }}
               formatShortWeekday={(locale, date) => {
                 const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']

@@ -4,7 +4,21 @@ import { generateToken } from '@/lib/jwt'
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
+    // Add better error handling for JSON parsing
+    let body
+    try {
+      body = await request.json()
+    } catch (jsonError) {
+      console.error('JSON parsing error:', jsonError)
+      return NextResponse.json(
+        { 
+          error: 'Invalid JSON', 
+          message: 'Request body must be valid JSON' 
+        },
+        { status: 400 }
+      )
+    }
+    
     const { identifier, password } = body
 
     // Basic validation
@@ -47,7 +61,8 @@ export async function POST(request: NextRequest) {
       userId: user.id,
       username: user.username,
       email: user.email,
-      role: user.role
+      role: user.role,
+      tenantId: user.tenant_id
     })
 
     // Create response and set httpOnly cookie

@@ -11,5 +11,5 @@ export { default as BookingDetailModal } from './BookingDetailModal'
 export { default as ConfirmationModal } from './ConfirmationModal'
 
 // Admin Components
-export { default as AdminTable } from './AdminTable'
+// export { default as AdminTable } from './AdminTable'
 export { default as StatsCard } from './StatsCard'

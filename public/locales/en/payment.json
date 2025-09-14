@@ -1,0 +1,38 @@
+{
+  "upload": {
+    "title": "Upload Payment Receipt",
+    "subtitle": "Upload your payment receipt or bank transfer confirmation for verification",
+    "dropZone": "Drop your receipt here or click to browse",
+    "formats": "Supports: JPEG, PNG, PDF (max 10MB)",
+    "fileSelected": "File selected successfully",
+    "uploading": "Uploading...",
+    "uploadButton": "Upload Receipt",
+    "removeFile": "Remove File"
+  },
+  "status": {
+    "success": "Receipt uploaded successfully!",
+    "successMessage": "Your receipt has been submitted for review. You'll be notified once it's verified.",
+    "error": "Upload Failed",
+    "tryAgain": "Please try again."
+  },
+  "requirements": {
+    "title": "📋 Requirements",
+    "formats": "• File formats: JPEG, PNG, or PDF",
+    "maxSize": "• Maximum file size: 10MB", 
+    "clarity": "• Receipt should clearly show payment amount and date",
+    "reference": "• Include transaction reference or confirmation number if available"
+  },
+  "validation": {
+    "fileTooLarge": "File size must be less than 10MB",
+    "invalidFileType": "Only JPEG, PNG, and PDF files are allowed",
+    "uploadFailed": "Upload failed. Please try again.",
+    "networkError": "Network error. Please check your connection."
+  },
+  "deadline": {
+    "title": "Payment Deadline Information",
+    "twoWeeks": "Payment must be made at least 2 weeks before the ceremony date",
+    "deadline": "Deadline: {{date}}",
+    "overdue": "Payment deadline has passed",
+    "overdueMessage": "Please contact the monastery administration for assistance"
+  }
+}

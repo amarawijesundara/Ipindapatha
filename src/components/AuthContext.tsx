@@ -22,6 +22,8 @@ interface AuthContextType extends AuthState {
   register: (username: string, email: string, password: string) => Promise<void>
   logout: () => void
   verifyToken: () => Promise<void>
+  getAuthToken: () => Promise<string | null>
+  refreshToken: () => Promise<boolean>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -179,7 +181,78 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('Logout API call failed:', error)
     }
     
+    // Also clear localStorage token for backward compatibility
+    localStorage.removeItem('token')
     dispatch({ type: 'LOGOUT' })
+  }
+
+  // Get auth token for API calls (checks both localStorage and cookies)
+  const getAuthToken = async (): Promise<string | null> => {
+    // First check localStorage for backward compatibility
+    const localToken = localStorage.getItem('token')
+    if (localToken) {
+      return localToken
+    }
+
+    // If no localStorage token, try to get one from cookie-based auth
+    try {
+      const response = await fetch('/api/auth/verify', {
+        method: 'GET',
+        credentials: 'include',
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        // For cookie-based auth, we'll need to get a temporary token for API calls
+        if (data.user) {
+          // Try to get a token specifically for API calls
+          const tokenResponse = await fetch('/api/auth/token', {
+            method: 'GET',
+            credentials: 'include',
+          })
+          
+          if (tokenResponse.ok) {
+            const tokenData = await tokenResponse.json()
+            return tokenData.token
+          }
+        }
+      }
+    } catch (error) {
+      console.debug('Token retrieval failed:', error)
+    }
+
+    return null
+  }
+
+  // Refresh the authentication token
+  const refreshToken = async (): Promise<boolean> => {
+    try {
+      const response = await fetch('/api/auth/refresh', {
+        method: 'POST',
+        credentials: 'include',
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.user) {
+          dispatch({
+            type: 'LOGIN_SUCCESS',
+            payload: { user: data.user, token: data.token || 'cookie-based' },
+          })
+          
+          // Update localStorage token if provided
+          if (data.token) {
+            localStorage.setItem('token', data.token)
+          }
+          
+          return true
+        }
+      }
+    } catch (error) {
+      console.debug('Token refresh failed:', error)
+    }
+
+    return false
   }
 
   return (
@@ -190,6 +263,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         register,
         logout,
         verifyToken,
+        getAuthToken,
+        refreshToken,
       }}
     >
       {children}

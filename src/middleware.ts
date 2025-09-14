@@ -31,7 +31,7 @@ export async function middleware(request: NextRequest) {
     }
 
     // Check if user has admin role
-    if (payload.role !== 'super_admin' && payload.role !== 'admin') {
+    if (payload.role !== 'super_admin' && payload.role !== 'admin' && payload.role !== 'tenant_admin') {
       return NextResponse.redirect(new URL('/my-account', request.url))
     }
   }

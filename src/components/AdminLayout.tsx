@@ -1,10 +1,10 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAuth } from '@/components/AuthContext'
-import { Container, Button } from '@/components/ui'
+import { Button } from '@/components/ui'
 
 interface AdminLayoutProps {
   children: React.ReactNode
@@ -59,6 +59,16 @@ const navigationItems: NavItem[] = [
     description: 'Platform-wide booking management'
   },
   {
+    href: '/admin/content',
+    label: 'Content',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+      </svg>
+    ),
+    description: 'Manage site content and text'
+  },
+  {
     href: '/admin/settings',
     label: 'Settings',
     icon: (
@@ -73,18 +83,50 @@ const navigationItems: NavItem[] = [
 
 export default function AdminLayout({ children }: AdminLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [isDesktop, setIsDesktop] = useState(false)
   const pathname = usePathname()
   const { user, logout } = useAuth()
 
-  // Check if user is super admin
-  if (user?.role !== 'super_admin') {
+  // Handle responsive breakpoint
+  useEffect(() => {
+    const checkScreenSize = () => {
+      setIsDesktop(window.innerWidth >= 1024)
+    }
+    
+    checkScreenSize()
+    window.addEventListener('resize', checkScreenSize)
+    return () => window.removeEventListener('resize', checkScreenSize)
+  }, [])
+
+  // Close sidebar on route change (mobile)
+  useEffect(() => {
+    setSidebarOpen(false)
+  }, [pathname])
+
+  // Handle escape key for mobile sidebar
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSidebarOpen(false)
+      }
+    }
+
+    if (sidebarOpen) {
+      document.addEventListener('keydown', handleEscape)
+      return () => document.removeEventListener('keydown', handleEscape)
+    }
+  }, [sidebarOpen])
+
+  // Check if user is admin or tenant admin
+  if (user?.role !== 'super_admin' && user?.role !== 'tenant_admin') {
     return (
-      <div className="min-h-screen bg-error-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-6xl mb-4">🚫</div>
-          <h1 className="text-2xl font-bold text-error-800 mb-2">Access Denied</h1>
-          <p className="text-error-600 mb-4">Super admin privileges required</p>
-          <Button asChild variant="outline">
+      <div className="min-h-screen bg-error-50 flex items-center justify-center p-4">
+        <div className="text-center max-w-md">
+          <div className="text-4xl sm:text-6xl mb-4">🚫</div>
+          <h1 className="text-xl sm:text-2xl font-bold text-error-800 mb-2">Access Denied</h1>
+          <p className="text-error-600 mb-4 text-sm sm:text-base">Admin privileges required</p>
+          <Button asChild variant="outline" size="sm">
             <Link href="/my-account">Back to My Account</Link>
           </Button>
         </div>
@@ -93,153 +135,238 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   }
 
   return (
-    <div className="min-h-screen bg-lotus-50">
-      {/* Mobile sidebar backdrop */}
+    <div 
+      className="admin-layout-grid min-h-screen bg-lotus-50"
+      style={{
+        display: 'grid',
+        gridTemplateColumns: isDesktop 
+          ? sidebarCollapsed 
+            ? '4rem 1fr' 
+            : '16rem 1fr'
+          : '1fr',
+        gridTemplateRows: 'auto 1fr',
+        gridTemplateAreas: isDesktop 
+          ? `"sidebar header" "sidebar main"`
+          : `"header" "main"`,
+        transition: 'grid-template-columns 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+      }}
+    >
+      {/* Mobile Backdrop */}
       {sidebarOpen && (
         <div 
-          className="fixed inset-0 z-40 bg-black bg-opacity-50 lg:hidden"
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden animate-fade-in"
           onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
         />
       )}
 
       {/* Sidebar */}
-      <div className={`
-        fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-monastery-200 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0
-        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-      `}>
+      <aside 
+        className={`
+          fixed inset-y-0 left-0 z-50 bg-white border-r border-monastery-200 
+          transform transition-transform duration-300 ease-out
+          lg:relative lg:translate-x-0
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+          ${sidebarCollapsed ? 'w-16' : 'w-64'}
+        `}
+        style={{
+          gridArea: 'sidebar',
+        }}
+      >
         <div className="flex flex-col h-full">
-          {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-monastery-200">
-            <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-primary-600 to-primary-700 rounded-lg flex items-center justify-center">
+          {/* Sidebar Header */}
+          <div className={`
+            flex items-center justify-between border-b border-monastery-200
+            ${sidebarCollapsed ? 'p-2' : 'p-4'}
+          `}>
+            <div className={`flex items-center ${sidebarCollapsed ? 'justify-center w-full' : 'space-x-3'}`}>
+              <div className="w-8 h-8 bg-gradient-to-br from-primary-600 to-primary-700 rounded-lg flex items-center justify-center shrink-0">
                 <span className="text-white font-bold text-sm">🏛️</span>
               </div>
-              <div>
-                <h2 className="font-semibold text-monastery-800">Admin Panel</h2>
-                <p className="text-xs text-monastery-600">Monastery Management</p>
-              </div>
+              {!sidebarCollapsed && (
+                <div className="min-w-0 flex-1">
+                  <h2 className="font-semibold text-monastery-800 text-sm truncate">
+                    {user?.role === 'super_admin' ? 'Admin Panel' : 'Tenant Admin'}
+                  </h2>
+                  <p className="text-xs text-monastery-600 truncate">
+                    {user?.role === 'super_admin' ? 'Platform Management' : 'Ipindapatha Monastery'}
+                  </p>
+                </div>
+              )}
             </div>
             
             {/* Mobile close button */}
+            {!sidebarCollapsed && (
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="lg:hidden text-monastery-500 hover:text-monastery-700 p-1 rounded-md hover:bg-monastery-50 transition-colors"
+                aria-label="Close sidebar"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+
+          {/* Desktop collapse toggle */}
+          <div className="hidden lg:block px-2 py-2 border-b border-monastery-100">
             <button
-              onClick={() => setSidebarOpen(false)}
-              className="lg:hidden text-monastery-500 hover:text-monastery-700"
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              className="w-full flex items-center justify-center p-2 text-monastery-500 hover:text-monastery-700 hover:bg-monastery-50 rounded-md transition-colors"
+              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              <svg 
+                className={`w-4 h-4 transition-transform duration-200 ${sidebarCollapsed ? 'rotate-180' : ''}`}
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7M21 12H3" />
               </svg>
             </button>
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 overflow-y-auto p-4 space-y-2">
+          <nav className="flex-1 overflow-y-auto p-2 space-y-1">
             {navigationItems.map((item) => {
               const isActive = pathname === item.href
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  onClick={() => setSidebarOpen(false)}
                   className={`
-                    flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors
+                    group flex items-center rounded-lg transition-all duration-200
+                    ${sidebarCollapsed ? 'p-3 justify-center' : 'p-3 space-x-3'}
                     ${isActive 
-                      ? 'bg-primary-100 text-primary-800 border border-primary-200' 
+                      ? 'bg-primary-100 text-primary-800 shadow-sm ring-1 ring-primary-200' 
                       : 'text-monastery-700 hover:bg-monastery-50 hover:text-monastery-800'
                     }
                   `}
+                  title={sidebarCollapsed ? item.label : undefined}
                 >
-                  <span className={isActive ? 'text-primary-600' : 'text-monastery-500'}>
+                  <span className={`
+                    shrink-0 transition-colors duration-200
+                    ${isActive ? 'text-primary-600' : 'text-monastery-500 group-hover:text-monastery-600'}
+                  `}>
                     {item.icon}
                   </span>
-                  <div className="flex-1">
-                    <div className="font-medium">{item.label}</div>
-                    {item.description && (
-                      <div className="text-xs text-monastery-500">{item.description}</div>
-                    )}
-                  </div>
+                  {!sidebarCollapsed && (
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-sm truncate">{item.label}</div>
+                      {item.description && (
+                        <div className="text-xs text-monastery-500 truncate mt-0.5">
+                          {item.description}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </Link>
               )
             })}
           </nav>
 
           {/* User info and logout */}
-          <div className="p-4 border-t border-monastery-200">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center">
+          <div className={`border-t border-monastery-200 ${sidebarCollapsed ? 'p-2' : 'p-4'}`}>
+            <div className={`flex items-center ${sidebarCollapsed ? 'justify-center' : 'justify-between'}`}>
+              <div className={`flex items-center ${sidebarCollapsed ? '' : 'space-x-3 min-w-0 flex-1'}`}>
+                <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center shrink-0">
                   <span className="text-primary-600 font-semibold text-sm">
                     {user?.username?.[0]?.toUpperCase()}
                   </span>
                 </div>
-                <div>
-                  <div className="font-medium text-monastery-800">{user?.username}</div>
-                  <div className="text-xs text-primary-600">Super Admin</div>
-                </div>
+                {!sidebarCollapsed && (
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-monastery-800 text-sm truncate">
+                      {user?.username}
+                    </div>
+                    <div className="text-xs text-primary-600 truncate">
+                      {user?.role === 'super_admin' ? 'Super Admin' : 'Tenant Admin'}
+                    </div>
+                  </div>
+                )}
               </div>
-              <button
-                onClick={logout}
-                className="text-monastery-500 hover:text-monastery-700 p-1"
-                title="Logout"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                </svg>
-              </button>
+              {!sidebarCollapsed && (
+                <button
+                  onClick={logout}
+                  className="text-monastery-500 hover:text-monastery-700 p-1 rounded-md hover:bg-monastery-50 transition-colors"
+                  title="Logout"
+                  aria-label="Logout"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                  </svg>
+                </button>
+              )}
             </div>
           </div>
         </div>
-      </div>
+      </aside>
 
-      {/* Main content */}
-      <div className="lg:ml-64 flex flex-col min-h-screen">
-        {/* Top header */}
-        <header className="bg-white border-b border-monastery-200 px-4 py-3 lg:px-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              {/* Mobile menu button */}
-              <button
-                onClick={() => setSidebarOpen(true)}
-                className="lg:hidden text-monastery-500 hover:text-monastery-700"
+      {/* Header */}
+      <header 
+        className="bg-white border-b border-monastery-200 px-3 sm:px-4 py-2 sm:py-3 lg:px-6"
+        style={{
+          gridArea: 'header',
+        }}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2 sm:space-x-4 min-w-0 flex-1">
+            {/* Mobile menu button */}
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="lg:hidden text-monastery-500 hover:text-monastery-700 p-2 rounded-md hover:bg-monastery-50 transition-colors"
+              aria-label="Open sidebar"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+            
+            {/* Breadcrumbs */}
+            <nav className="flex items-center space-x-2 text-sm min-w-0">
+              <Link 
+                href="/admin" 
+                className="text-monastery-500 hover:text-monastery-700 transition-colors whitespace-nowrap"
               >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
-              </button>
-              
-              {/* Breadcrumbs */}
-              <nav className="flex items-center space-x-2 text-sm">
-                <Link href="/admin" className="text-monastery-500 hover:text-monastery-700">
-                  Admin
-                </Link>
-                {pathname !== '/admin' && (
-                  <>
-                    <span className="text-monastery-400">/</span>
-                    <span className="text-monastery-800 font-medium">
-                      {navigationItems.find(item => item.href === pathname)?.label || 'Page'}
-                    </span>
-                  </>
-                )}
-              </nav>
-            </div>
-
-            <div className="flex items-center space-x-4">
-              <Button asChild variant="outline" size="sm">
-                <Link href="/my-account">
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                  </svg>
-                  Back to App
-                </Link>
-              </Button>
-            </div>
+                Admin
+              </Link>
+              {pathname !== '/admin' && (
+                <>
+                  <span className="text-monastery-400" aria-hidden="true">/</span>
+                  <span className="text-monastery-800 font-medium truncate">
+                    {navigationItems.find(item => item.href === pathname)?.label || 'Page'}
+                  </span>
+                </>
+              )}
+            </nav>
           </div>
-        </header>
 
-        {/* Page content */}
-        <main className="flex-1 p-4 lg:p-6">
+          <div className="flex items-center space-x-2 sm:space-x-4 shrink-0">
+            <Button asChild variant="outline" size="sm" className="text-xs sm:text-sm">
+              <Link href="/my-account">
+                <svg className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                </svg>
+                <span className="hidden sm:inline">Back to App</span>
+                <span className="sm:hidden">Back</span>
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main 
+        className="overflow-auto p-3 sm:p-4 lg:p-6"
+        style={{
+          gridArea: 'main',
+        }}
+      >
+        <div className="max-w-7xl mx-auto">
           {children}
-        </main>
-      </div>
+        </div>
+      </main>
     </div>
   )
 }

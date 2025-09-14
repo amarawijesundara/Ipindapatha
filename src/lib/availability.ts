@@ -1,5 +1,5 @@
 import prisma from './db'
-import { validateDateFilters, DateFilterOptions, safeCreateDate } from '@/lib/utils/dateValidation'
+import { validateDateFilters, DateFilterOptions, safeCreateDate, formatDateForDatabase } from '@/lib/utils/dateValidation'
 import { RecurringBookingService } from '@/lib/recurring-bookings'
 
 export interface AvailabilityTemplate {
@@ -65,7 +65,7 @@ export class AvailabilityService {
       
       while (currentDate <= endDate) {
         const dayOfWeek = currentDate.getDay() || 7 // Convert Sunday (0) to 7
-        const dateStr = currentDate.toISOString().split('T')[0]
+        const dateStr = formatDateForDatabase(currentDate)
         
         // Find applicable templates for this day of week
         const applicableTemplates = templates.filter(template => 
@@ -148,7 +148,7 @@ export class AvailabilityService {
       
       // Convert to API format
       return limitedSlots.map(slot => ({
-        id: `${slot.tenantId}-${slot.date.toISOString().split('T')[0]}-${slot.timeSlot}`,
+        id: `${slot.tenantId}-${formatDateForDatabase(slot.date)}-${slot.timeSlot}`,
         tenant_id: slot.tenantId,
         date: slot.date,
         time_slot: slot.timeSlot,
@@ -319,9 +319,9 @@ export class AvailabilityService {
     overrides: AvailabilityOverride[], 
     date: Date
   ): GeneratedAvailabilitySlot[] {
-    const dateStr = date.toISOString().split('T')[0]
+    const dateStr = formatDateForDatabase(date)
     const applicableOverrides = overrides.filter(
-      override => override.date.toISOString().split('T')[0] === dateStr
+      override => formatDateForDatabase(override.date) === dateStr
     )
     
     if (applicableOverrides.length === 0) return slots

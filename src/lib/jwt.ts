@@ -26,6 +26,9 @@ export const generateToken = async (payload: {
   tenantId?: number
   subdomain?: string
 }): Promise<string> => {
+  const now = Math.floor(Date.now() / 1000)
+  const exp = now + getExpiryInSeconds(JWT_EXPIRES_IN)
+  
   const tokenPayload: JWTPayload = {
     userId: payload.userId,
     username: payload.username,
@@ -33,13 +36,14 @@ export const generateToken = async (payload: {
     role: payload.role,
     tenantId: payload.tenantId,
     subdomain: payload.subdomain,
-    iat: Math.floor(Date.now() / 1000)
+    iat: now,
+    exp: exp
   }
 
   const jwt = await new SignJWT(tokenPayload as any)
     .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setExpirationTime(Math.floor(Date.now() / 1000) + getExpiryInSeconds(JWT_EXPIRES_IN))
+    .setIssuedAt(now)
+    .setExpirationTime(exp)
     .sign(secret)
 
   return jwt
@@ -52,8 +56,27 @@ export const verifyToken = async (token?: string): Promise<JWTPayload | null> =>
     const { payload } = await jwtVerify(token, secret)
     return payload as JWTPayload
   } catch (error) {
-    console.error('JWT verification error:', error)
+    // More specific error logging for debugging
+    if (error.code === 'ERR_JWT_EXPIRED') {
+      console.log('JWT token expired at:', new Date((error.payload?.exp || 0) * 1000).toISOString())
+    } else if (error.code === 'ERR_JWT_INVALID') {
+      console.log('JWT token invalid:', error.message)
+    } else {
+      console.error('JWT verification error:', error)
+    }
     return null
+  }
+}
+
+// Helper to check if token is expired without throwing
+export const isTokenExpired = async (token?: string): Promise<boolean> => {
+  if (!token) return true
+  
+  try {
+    await jwtVerify(token, secret)
+    return false
+  } catch (error) {
+    return error.code === 'ERR_JWT_EXPIRED'
   }
 }
 
@@ -80,6 +103,7 @@ export const hasRole = async (token: string, requiredRoles: string[]): Promise<b
 export const isSuperAdmin = async (token: string): Promise<boolean> => {
   return await hasRole(token, ['super_admin'])
 }
+
 
 // Helper to check if user is tenant admin
 export const isTenantAdmin = async (token: string): Promise<boolean> => {

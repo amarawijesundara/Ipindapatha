@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { BookingService } from '@/lib/bookings'
 import prisma from '@/lib/db'
-import { createTimeFromString } from '@/lib/utils/dateValidation'
+import { createTimeFromString, formatDateForDatabase } from '@/lib/utils/dateValidation'
 
 // Helper function to get temporary reservations
 async function getTemporaryReservations() {
@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
     
     // Get actual booking counts for each slot
     const enhancedAvailability = await Promise.all(availability.map(async slot => {
-      const slotDate = new Date(slot.date).toISOString().split('T')[0]
+      const slotDate = formatDateForDatabase(new Date(slot.date))
       const slotTime = slot.timeSlot || slot.time_slot
       
       // Check for temporary reservations
@@ -112,6 +112,9 @@ export async function GET(request: NextRequest) {
         status = 'partially_available'
         isAvailable = true
       } else {
+        // Available slot with no bookings
+        status = 'available'
+        isAvailable = true
       }
       
       return {

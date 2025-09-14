@@ -1,0 +1,65 @@
+{
+  "title": "මගේ ගිණුම 🕉️",
+  "subtitle": "ඔබේ පුද්ගලික වෙන්කරවීම් ඉතිහාසය සහ ගිණුම් තොරතුරු",
+  "loading": {
+    "title": "ප්‍රවේශ වෙමින්...",
+    "message": "ඔබේ ගිණුම් තොරතුරු ප්‍රවේශ කරමින්..."
+  },
+  "error": {
+    "title": "ගිණුම ප්‍රවේශ කිරීමට නොහැකිය",
+    "message": "කරුණාකර ඔබේ සම්බන්ධතාව පරීක්ෂා කර නැවත උත්සාහ කරන්න.",
+    "goHome": "මුල් පිටුවට යන්න"
+  },
+  "stats": {
+    "totalBookings": "මගේ සම්පුර්ණ වෙන්කරවීම්",
+    "totalBookingsDesc": "ඔබේ සියලුම කර්මාන්ත වෙන්කරවීම්",
+    "pendingBookings": "ප්‍රතීක්ෂාවේ වෙන්කරවීම්",
+    "pendingBookingsDesc": "තහවුරු කිරීමට බලාපොරොත්තුවෙන්",
+    "confirmedBookings": "තහවුරු කළ වෙන්කරවීම්",
+    "confirmedBookingsDesc": "කර්මාන්තයට සූදානම්",
+    "upcomingCeremonies": "ඉදිරියේ කර්මාන්ත",
+    "upcomingCeremoniesDesc": "ඊළඟ තහවුරු කළ සිදුවීම්"
+  },
+  "sections": {
+    "recentBookings": "මෑත වෙන්කරවීම්",
+    "accountInfo": "ගිණුම් තොරතුරු",
+    "quickActions": "ඉක්මන් ක්‍රියා",
+    "upcomingCeremonies": "ඉදිරියේ කර්මාන්ත"
+  },
+  "accountInfo": {
+    "name": "නම",
+    "email": "විද්‍යුත් ලිපිනය",
+    "memberSince": "සාමාජික වූ දිනය",
+    "role": "භූමිකාව"
+  },
+  "roles": {
+    "user": "සාමාජික",
+    "tenant_admin": "පරිපාලක",
+    "super_admin": "ප්‍රධාන පරිපාලක"
+  },
+  "quickActions": {
+    "bookNewCeremony": "නව කර්මාන්තයක් වෙන්කර ගන්න",
+    "viewAllBookings": "සියලු වෙන්කරවීම් බලන්න",
+    "editProfile": "පැතිකඩ සංස්කරණය කරන්න",
+    "adminPanel": "පරිපාලන පුවරුව"
+  },
+  "bookings": {
+    "noBookings": "වෙන්කරවීම් නොමැත",
+    "noBookingsMessage": "ඔබේ පළමු දාන කර්මාන්තය වෙන්කර ගැනීමෙන් ආරම්භ කරන්න",
+    "foodPreparation": "ආහාර පිළියෙළ කිරීම",
+    "monetaryDonation": "මුදල් පරිත්‍යාගය",
+    "payment": "ගෙවීම: {{amount}}",
+    "deadline": "අවසාන දිනය: {{date}}",
+    "overdue": "(කල් ඉකුත්)",
+    "verified": "✅ {{date}} දින සත්‍යාපනය කරන ලදී",
+    "uploadReceipt": "රිසිට් පත උඩුගත කරන්න",
+    "updateReceipt": "රිසිට් පත යාවත්කාලීන කරන්න"
+  },
+  "paymentStatus": {
+    "pending": "ප්‍රතීක්ෂාවේ",
+    "paid": "ගෙවන ලද",
+    "verified": "සත්‍යාපනය කළ",
+    "overdue": "කල් ඉකුත්",
+    "cancelled": "අවලංගු කළ"
+  }
+}

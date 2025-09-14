@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { AdminTable, Button, Loading } from '@/components/ui'
+import { Button, Loading } from '@/components/ui'
+import AdminTable from '@/components/ui/AdminTable'
 
 interface User {
   id: number
@@ -35,11 +36,30 @@ export default function UsersPage() {
 
   const fetchUsers = async () => {
     try {
-      const token = localStorage.getItem('token')
+      // First try to get a token for API calls
+      let token = localStorage.getItem('token')
+      
+      // If no localStorage token, try to get one from cookie-based auth
+      if (!token) {
+        try {
+          const tokenResponse = await fetch('/api/auth/token', {
+            credentials: 'include'
+          })
+          if (tokenResponse.ok) {
+            const tokenData = await tokenResponse.json()
+            token = tokenData.token
+          }
+        } catch (error) {
+          console.error('Failed to get token:', error)
+          return
+        }
+      }
+      
       if (!token) return
 
       const response = await fetch('/api/admin/users', {
         headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include'
       })
 
       if (response.ok) {
@@ -57,7 +77,24 @@ export default function UsersPage() {
     setActionLoading(user.id)
     
     try {
-      const token = localStorage.getItem('token')
+      // Get token using the same method as fetchUsers
+      let token = localStorage.getItem('token')
+      
+      if (!token) {
+        try {
+          const tokenResponse = await fetch('/api/auth/token', {
+            credentials: 'include'
+          })
+          if (tokenResponse.ok) {
+            const tokenData = await tokenResponse.json()
+            token = tokenData.token
+          }
+        } catch (error) {
+          console.error('Failed to get token:', error)
+          return
+        }
+      }
+      
       if (!token) return
 
       const response = await fetch('/api/admin/users', {
@@ -66,6 +103,7 @@ export default function UsersPage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
+        credentials: 'include',
         body: JSON.stringify({
           userId: user.id,
           isActive: !user.is_active
@@ -93,7 +131,24 @@ export default function UsersPage() {
     setActionLoading(user.id)
     
     try {
-      const token = localStorage.getItem('token')
+      // Get token using the same method as fetchUsers
+      let token = localStorage.getItem('token')
+      
+      if (!token) {
+        try {
+          const tokenResponse = await fetch('/api/auth/token', {
+            credentials: 'include'
+          })
+          if (tokenResponse.ok) {
+            const tokenData = await tokenResponse.json()
+            token = tokenData.token
+          }
+        } catch (error) {
+          console.error('Failed to get token:', error)
+          return
+        }
+      }
+      
       if (!token) return
 
       const response = await fetch('/api/admin/users', {
@@ -102,6 +157,7 @@ export default function UsersPage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
+        credentials: 'include',
         body: JSON.stringify({
           userId: user.id,
           role: newRole

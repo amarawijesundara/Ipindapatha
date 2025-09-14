@@ -1,0 +1,65 @@
+{
+  "title": "My Account 🕉️",
+  "subtitle": "Your personal booking history and account information",
+  "loading": {
+    "title": "Loading...",
+    "message": "Loading your account information..."
+  },
+  "error": {
+    "title": "Unable to Load Account",
+    "message": "Please check your connection and try again.",
+    "goHome": "Go Home"
+  },
+  "stats": {
+    "totalBookings": "My Total Bookings",
+    "totalBookingsDesc": "All your ceremony bookings",
+    "pendingBookings": "Pending Bookings",
+    "pendingBookingsDesc": "Awaiting confirmation",
+    "confirmedBookings": "Confirmed Bookings", 
+    "confirmedBookingsDesc": "Ready for ceremony",
+    "upcomingCeremonies": "Upcoming Ceremonies",
+    "upcomingCeremoniesDesc": "Next confirmed events"
+  },
+  "sections": {
+    "recentBookings": "Recent Bookings",
+    "accountInfo": "Account Information",
+    "quickActions": "Quick Actions",
+    "upcomingCeremonies": "Upcoming Ceremonies"
+  },
+  "accountInfo": {
+    "name": "Name",
+    "email": "Email", 
+    "memberSince": "Member Since",
+    "role": "Role"
+  },
+  "roles": {
+    "user": "Member",
+    "tenant_admin": "Administrator",
+    "super_admin": "Super Administrator"
+  },
+  "quickActions": {
+    "bookNewCeremony": "Book New Ceremony",
+    "viewAllBookings": "View All Bookings",
+    "editProfile": "Edit Profile",
+    "adminPanel": "Admin Panel"
+  },
+  "bookings": {
+    "noBookings": "No bookings yet",
+    "noBookingsMessage": "Start by booking your first Dhane ceremony",
+    "foodPreparation": "Food Preparation",
+    "monetaryDonation": "Monetary Donation",
+    "payment": "Payment: {{amount}}",
+    "deadline": "Deadline: {{date}}",
+    "overdue": "(Overdue)",
+    "verified": "✅ Verified on {{date}}",
+    "uploadReceipt": "Upload Receipt",
+    "updateReceipt": "Update Receipt"
+  },
+  "paymentStatus": {
+    "pending": "Pending",
+    "paid": "Paid",
+    "verified": "Verified",
+    "overdue": "Overdue",
+    "cancelled": "Cancelled"
+  }
+}

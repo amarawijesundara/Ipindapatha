@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
+import { formatDateForBooking } from '@/lib/utils/dateValidation'
 
 interface BookingDetail {
   time: string
@@ -30,7 +31,7 @@ export default function BookingDetailsView({ selectedDate, onClose, onSelectDiff
 
   const fetchDateBookings = async () => {
     try {
-      const dateStr = selectedDate.toISOString().split('T')[0]
+      const dateStr = formatDateForBooking(selectedDate)
       const response = await fetch(`/api/bookings/date-bookings?date=${dateStr}`)
       
       if (response.ok) {
@@ -107,14 +108,38 @@ export default function BookingDetailsView({ selectedDate, onClose, onSelectDiff
 
   if (bookings.length === 0) {
     return (
-      <div className="text-center py-8">
-        <div className="text-4xl mb-4">📅</div>
-        <h3 className="text-lg font-semibold text-monastery-800 mb-2">
-          No Bookings Found
-        </h3>
-        <p className="text-monastery-600">
-          This date appears to be available for booking.
-        </p>
+      <div className="space-y-6">
+        <div className="text-center py-8">
+          <div className="text-4xl mb-4">🔒</div>
+          <h3 className="text-lg font-semibold text-monastery-800 mb-2">
+            Date Marked as Fully Booked
+          </h3>
+          <p className="text-monastery-600 mb-4">
+            This date shows as fully booked in the system, but specific booking details are not currently available.
+          </p>
+          <div className="bg-warning-50 border border-warning-200 rounded-lg p-4">
+            <p className="text-sm text-warning-700">
+              <strong>All time slots for this date are currently unavailable.</strong><br/>
+              This may be due to capacity limits, recurring bookings, or system maintenance. Please select a different date.
+            </p>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-3 pt-4">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2 bg-secondary-100 text-secondary-700 rounded-lg hover:bg-secondary-200 transition-colors"
+          >
+            Close
+          </button>
+          <button
+            onClick={onSelectDifferentDate}
+            className="flex-1 px-4 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors"
+          >
+            Select Different Date
+          </button>
+        </div>
       </div>
     )
   }

@@ -794,7 +794,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
 
                       {formData.donationAmount > 0 && (
                         <div className="text-xs text-monastery-600 mt-2">
-                          💡 After booking, you'll receive payment instructions and can upload your receipt for verification.
+                          💡 After booking, you&apos;ll receive payment instructions and can upload your receipt for verification.
                         </div>
                       )}
                     </div>

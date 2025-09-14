@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { AdminTable, Button, Loading, BookingDetailModal, ConfirmationModal } from '@/components/ui'
+import { Button, Loading, BookingDetailModal, ConfirmationModal } from '@/components/ui'
+import AdminTable from '@/components/ui/AdminTable'
 
 interface Booking {
   id: number

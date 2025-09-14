@@ -1,6 +1,6 @@
 import prisma from './db'
 import { Booking, BookingAvailability, BookingCreateInput, AvailabilityCreateInput } from '@/types'
-import { validateDateFilters, DateFilterOptions, safeCreateDate, createTimeFromString } from '@/lib/utils/dateValidation'
+import { validateDateFilters, DateFilterOptions, safeCreateDate, createTimeFromString, formatDateForDatabase } from '@/lib/utils/dateValidation'
 import { AvailabilityService } from '@/lib/availability'
 import { RecurringBookingService } from '@/lib/recurring-bookings'
 
@@ -148,7 +148,7 @@ export class BookingService {
       }
       
       // Check availability using dynamic system
-      const dateStr = bookingDate.toISOString().split('T')[0]
+      const dateStr = formatDateForDatabase(bookingDate)
       const timeStr = bookingData.bookingTime
 
       // Skip availability checks if admin override is enabled

@@ -35,6 +35,7 @@ model Tenant {
   availabilityTemplates AvailabilityTemplate[]
   availabilityOverrides AvailabilityOverride[]
   recurringBookings  RecurringBooking[]
+  siteContent        SiteContent[]
   bookingPayments    BookingPayment[]
   paymentReceipts    PaymentReceipt[]
   
@@ -120,6 +121,7 @@ model User {
   refreshTokens RefreshToken[]
   tenantUsers   TenantUser[]
   platformSettingsUpdates PlatformSettings[]
+  siteContentUpdates SiteContent[] @relation("SiteContentUpdater")
   adminAuditLogs AdminAuditLog[]
   availabilityOverrides AvailabilityOverride[]
   recurringBookings RecurringBooking[]
@@ -224,6 +226,36 @@ model PlatformSettings {
   @@index([settingKey])
   @@index([isActive])
   @@map("platform_settings")
+}
+
+model SiteContent {
+  id           Int      @id @default(autoincrement())
+  tenantId     Int?     @map("tenant_id") // Nullable for platform-wide content
+  contentKey   String   @map("content_key") @db.VarChar(100)
+  category     String   @db.VarChar(50)
+  language     String   @default("en") @db.VarChar(5)
+  title        String?  @db.VarChar(255)
+  content      String   @db.Text
+  contentType  String   @default("text") @map("content_type") @db.VarChar(20)
+  displayOrder Int      @default(0) @map("display_order")
+  isActive     Boolean  @default(true) @map("is_active")
+  updatedBy    Int?     @map("updated_by")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+  
+  // Relations
+  tenant        Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  updatedByUser User? @relation("SiteContentUpdater", fields: [updatedBy], references: [id], onDelete: SetNull)
+  
+  @@unique([tenantId, contentKey, language])
+  @@index([tenantId])
+  @@index([contentKey])
+  @@index([category])
+  @@index([language])
+  @@index([isActive])
+  @@index([category, displayOrder])
+  @@index([tenantId, category])
+  @@map("site_content")
 }
 
 model AdminAuditLog {

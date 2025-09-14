@@ -102,9 +102,35 @@ async function migrate() {
       )
     `)
     
+    // Create site_content table for editable content
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS site_content (
+        id SERIAL PRIMARY KEY,
+        content_key VARCHAR(100) NOT NULL,
+        category VARCHAR(50) NOT NULL,
+        language VARCHAR(5) NOT NULL DEFAULT 'en',
+        title VARCHAR(255),
+        content TEXT,
+        content_type VARCHAR(20) NOT NULL DEFAULT 'text' CHECK (content_type IN ('text', 'html', 'markdown', 'json')),
+        display_order INTEGER DEFAULT 0,
+        is_active BOOLEAN DEFAULT true,
+        updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(content_key, language)
+      )
+    `)
+    
     // Create indexes for platform_settings table
     await pool.query('CREATE INDEX IF NOT EXISTS idx_platform_settings_key ON platform_settings(setting_key)')
     await pool.query('CREATE INDEX IF NOT EXISTS idx_platform_settings_active ON platform_settings(is_active)')
+    
+    // Create indexes for site_content table
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_site_content_key ON site_content(content_key)')
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_site_content_category ON site_content(category)')
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_site_content_language ON site_content(language)')
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_site_content_active ON site_content(is_active)')
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_site_content_order ON site_content(category, display_order)')
     
     // Create admin_audit_log table for tracking admin actions
     await pool.query(`
@@ -166,6 +192,14 @@ async function migrate() {
       DROP TRIGGER IF EXISTS update_platform_settings_updated_at ON platform_settings;
       CREATE TRIGGER update_platform_settings_updated_at
         BEFORE UPDATE ON platform_settings
+        FOR EACH ROW
+        EXECUTE FUNCTION update_updated_at_column()
+    `)
+    
+    await pool.query(`
+      DROP TRIGGER IF EXISTS update_site_content_updated_at ON site_content;
+      CREATE TRIGGER update_site_content_updated_at
+        BEFORE UPDATE ON site_content
         FOR EACH ROW
         EXECUTE FUNCTION update_updated_at_column()
     `)

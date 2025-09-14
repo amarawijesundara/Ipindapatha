@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { StatsCard, AdminTable, Loading, Button } from '@/components/ui'
+import { StatsCard, Loading, Button } from '@/components/ui'
+import AdminTable from '@/components/ui/AdminTable'
 
 interface PlatformStats {
   overview: {
@@ -67,16 +68,47 @@ export default function AdminDashboard() {
 
   const fetchStats = async () => {
     try {
-      const token = localStorage.getItem('token')
-      if (!token) return
+      // First try to get a token for API calls
+      let token = localStorage.getItem('token')
+      
+      // If no localStorage token, try to get one from cookie-based auth
+      if (!token) {
+        try {
+          const tokenResponse = await fetch('/api/auth/token', {
+            credentials: 'include'
+          })
+          if (tokenResponse.ok) {
+            const tokenData = await tokenResponse.json()
+            token = tokenData.token
+          }
+        } catch (error) {
+          console.error('Failed to get token:', error)
+          setLoading(false)
+          return
+        }
+      }
+      
+      if (!token) {
+        setLoading(false)
+        return
+      }
 
       const response = await fetch(`/api/admin/stats?period=${period}`, {
         headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include'
       })
 
       if (response.ok) {
         const data = await response.json()
         setStats(data.stats)
+      } else {
+        console.error('Failed to fetch stats:', response.status, response.statusText)
+        try {
+          const errorData = await response.json()
+          console.error('Error details:', errorData)
+        } catch (e) {
+          console.error('Could not parse error response')
+        }
       }
     } catch (error) {
       console.error('Failed to fetch admin stats:', error)
@@ -223,20 +255,20 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-monastery-800">Admin Dashboard</h1>
-          <p className="text-monastery-600">Platform overview and key metrics</p>
+          <h1 className="admin-heading-lg font-bold text-monastery-800">Admin Dashboard</h1>
+          <p className="admin-text-responsive text-monastery-600 mt-1">Platform overview and key metrics</p>
         </div>
         
-        <div className="flex items-center space-x-2">
-          <label className="text-sm font-medium text-monastery-700">Period:</label>
+        <div className="flex items-center space-x-2 shrink-0">
+          <label className="text-sm font-medium text-monastery-700 whitespace-nowrap">Period:</label>
           <select
             value={period}
             onChange={(e) => setPeriod(e.target.value)}
-            className="px-3 py-1 border border-monastery-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            className="admin-touch-target px-3 py-2 border border-monastery-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white min-w-0"
           >
             <option value="7">Last 7 days</option>
             <option value="30">Last 30 days</option>
@@ -246,7 +278,7 @@ export default function AdminDashboard() {
       </div>
 
       {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="admin-dashboard-grid">
         <StatsCard
           title="Total Tenants"
           value={stats.overview.total_tenants}
@@ -308,9 +340,9 @@ export default function AdminDashboard() {
       </div>
 
       {/* Distribution Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl border border-monastery-200 p-6">
-          <h3 className="text-lg font-semibold text-monastery-800 mb-4">Users by Role</h3>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+        <div className="bg-white rounded-xl border border-monastery-200 p-4 sm:p-6 animate-scale-in">
+          <h3 className="admin-heading-md font-semibold text-monastery-800 mb-4">Users by Role</h3>
           <div className="space-y-3">
             {stats.distribution.users_by_role.map((item) => (
               <div key={item.role} className="flex items-center justify-between">
@@ -333,8 +365,8 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-monastery-200 p-6">
-          <h3 className="text-lg font-semibold text-monastery-800 mb-4">Tenants by Plan</h3>
+        <div className="bg-white rounded-xl border border-monastery-200 p-4 sm:p-6 animate-scale-in">
+          <h3 className="admin-heading-md font-semibold text-monastery-800 mb-4">Tenants by Plan</h3>
           <div className="space-y-3">
             {stats.distribution.tenants_by_plan.map((item) => (
               <div key={item.plan} className="flex items-center justify-between">
@@ -359,25 +391,29 @@ export default function AdminDashboard() {
       </div>
 
       {/* Recent Activity */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <div>
-          <h3 className="text-lg font-semibold text-monastery-800 mb-4">Recent Tenants</h3>
-          <AdminTable
-            data={stats.recent_activity.new_tenants}
-            columns={recentTenantsColumns}
-            searchPlaceholder="Search recent tenants..."
-            emptyMessage="No recent tenants found"
-          />
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6">
+        <div className="animate-scale-in">
+          <h3 className="admin-heading-md font-semibold text-monastery-800 mb-4">Recent Tenants</h3>
+          <div className="admin-table-responsive admin-scrollbar">
+            <AdminTable
+              data={stats.recent_activity.new_tenants}
+              columns={recentTenantsColumns}
+              searchPlaceholder="Search recent tenants..."
+              emptyMessage="No recent tenants found"
+            />
+          </div>
         </div>
 
-        <div>
-          <h3 className="text-lg font-semibold text-monastery-800 mb-4">Top Tenants</h3>
-          <AdminTable
-            data={stats.top_tenants}
-            columns={topTenantsColumns}
-            searchPlaceholder="Search top tenants..."
-            emptyMessage="No tenants found"
-          />
+        <div className="animate-scale-in">
+          <h3 className="admin-heading-md font-semibold text-monastery-800 mb-4">Top Tenants</h3>
+          <div className="admin-table-responsive admin-scrollbar">
+            <AdminTable
+              data={stats.top_tenants}
+              columns={topTenantsColumns}
+              searchPlaceholder="Search top tenants..."
+              emptyMessage="No tenants found"
+            />
+          </div>
         </div>
       </div>
     </div>

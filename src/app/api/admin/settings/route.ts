@@ -3,7 +3,6 @@ import { verifyToken } from '@/lib/jwt'
 import prisma from '@/lib/db'
 
 interface PlatformSettings {
-  platformName: string
   maintenanceMode: boolean
   allowRegistrations: boolean
   requireEmailVerification: boolean
@@ -45,7 +44,6 @@ export async function GET(request: NextRequest) {
     // Convert database rows to settings object
     const settings: Partial<PlatformSettings> = {}
     const defaultSettings: PlatformSettings = {
-      platformName: 'Monastery Dhane Booking',
       maintenanceMode: false,
       allowRegistrations: true,
       requireEmailVerification: false,
@@ -184,14 +182,6 @@ export async function POST(request: NextRequest) {
 
 function validateSettings(settings: PlatformSettings): string[] {
   const errors: string[] = []
-
-  // Validate platform name
-  if (!settings.platformName || settings.platformName.trim().length === 0) {
-    errors.push('Platform name is required')
-  }
-  if (settings.platformName && settings.platformName.length > 100) {
-    errors.push('Platform name must be less than 100 characters')
-  }
 
   // Validate numeric limits
   if (settings.maxTenantsPerDay < 1 || settings.maxTenantsPerDay > 100) {

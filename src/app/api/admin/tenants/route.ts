@@ -16,7 +16,8 @@ export async function GET(request: NextRequest) {
 
     const token = authHeader.substring(7)
     
-    if (!isSuperAdmin(token)) {
+    const isSuper = await isSuperAdmin(token)
+    if (!isSuper) {
       return NextResponse.json(
         { error: 'Access denied', message: 'Super admin access required' },
         { status: 403 }
@@ -121,7 +122,8 @@ export async function POST(request: NextRequest) {
 
     const token = authHeader.substring(7)
     
-    if (!isSuperAdmin(token)) {
+    const isSuper = await isSuperAdmin(token)
+    if (!isSuper) {
       return NextResponse.json(
         { error: 'Access denied', message: 'Super admin access required' },
         { status: 403 }

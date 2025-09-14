@@ -1,0 +1,70 @@
+{
+  "navigation": {
+    "dashboard": "Dashboard",
+    "users": "Users",
+    "bookings": "Bookings", 
+    "availability": "Availability",
+    "settings": "Settings",
+    "reports": "Reports"
+  },
+  "dashboard": {
+    "title": "Admin Dashboard",
+    "overview": "System Overview",
+    "stats": "Statistics",
+    "recentActivity": "Recent Activity"
+  },
+  "users": {
+    "title": "User Management",
+    "totalUsers": "Total Users",
+    "activeUsers": "Active Users",
+    "newUsers": "New Users This Month",
+    "addUser": "Add New User",
+    "editUser": "Edit User",
+    "deleteUser": "Delete User",
+    "userRoles": "User Roles"
+  },
+  "bookings": {
+    "title": "Booking Management",
+    "totalBookings": "Total Bookings",
+    "pendingBookings": "Pending Bookings", 
+    "confirmedBookings": "Confirmed Bookings",
+    "todaysBookings": "Today's Bookings",
+    "viewBooking": "View Details",
+    "editBooking": "Edit Booking",
+    "confirmBooking": "Confirm Booking",
+    "cancelBooking": "Cancel Booking"
+  },
+  "availability": {
+    "title": "Availability Management",
+    "manageSlots": "Manage Time Slots",
+    "addSlots": "Add Availability",
+    "blockDates": "Block Dates",
+    "holidaySchedule": "Holiday Schedule"
+  },
+  "settings": {
+    "title": "System Settings",
+    "general": "General Settings",
+    "notifications": "Notification Settings",
+    "maintenance": "Maintenance Mode",
+    "backup": "Backup & Restore"
+  },
+  "actions": {
+    "view": "View",
+    "edit": "Edit", 
+    "delete": "Delete",
+    "approve": "Approve",
+    "reject": "Reject",
+    "export": "Export",
+    "import": "Import",
+    "backup": "Backup",
+    "restore": "Restore"
+  },
+  "filters": {
+    "all": "All",
+    "active": "Active",
+    "inactive": "Inactive",
+    "today": "Today",
+    "thisWeek": "This Week",
+    "thisMonth": "This Month"
+  }
+}
