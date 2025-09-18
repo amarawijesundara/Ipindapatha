@@ -11,7 +11,7 @@ import { parseBookingDate } from '@/lib/utils/dateValidation'
 interface Booking {
   id: number
   booking_date: string | Date
-  booking_time: string
+  meal_period?: 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea'
   event_note?: string
   status: 'pending' | 'confirmed' | 'cancelled'
   offering_type?: 'food_preparation' | 'monetary_donation'
@@ -156,8 +156,22 @@ export default function MyAccount() {
     })
   }
 
-  const formatTime = (timeString: string) => {
-    return timeString.length > 5 ? timeString.substring(0, 5) : timeString
+  const formatMealPeriod = (mealPeriod?: string) => {
+    if (!mealPeriod) {
+      return {
+        name: 'Time not specified',
+        timeRange: ''
+      }
+    }
+
+    const mealPeriodInfo: Record<string, { name: string; timeRange: string }> = {
+      morning_meal: { name: 'Morning Meal', timeRange: '6:30 AM - 7:30 AM' },
+      morning_tea: { name: 'Morning Tea', timeRange: '9:30 AM - 10:30 AM' },
+      lunch_meal: { name: 'Lunch Meal', timeRange: '11:30 AM - 12:00 PM' },
+      evening_tea: { name: 'Evening Tea', timeRange: '3:00 PM - 4:00 PM' }
+    }
+
+    return mealPeriodInfo[mealPeriod] || { name: mealPeriod, timeRange: 'Time not specified' }
   }
 
   const getPaymentStatusColor = (status: string) => {
@@ -425,8 +439,16 @@ export default function MyAccount() {
                                 <span className="text-lg">{getOfferingTypeIcon(booking.offering_type)}</span>
                                 <div>
                                   <p className="font-semibold text-monastery-900">
-                                    {formatDate(booking.booking_date)} at {formatTime(booking.booking_time)}
+                                    {formatDate(booking.booking_date)}
                                   </p>
+                                  <p className="text-sm text-monastery-700">
+                                    {formatMealPeriod(booking.meal_period).name}
+                                  </p>
+                                  {formatMealPeriod(booking.meal_period).timeRange && (
+                                    <p className="text-xs text-monastery-500">
+                                      {formatMealPeriod(booking.meal_period).timeRange}
+                                    </p>
+                                  )}
                                   <p className="text-xs text-monastery-600">
                                     {getOfferingTypeLabel(booking.offering_type)}
                                   </p>
@@ -601,8 +623,13 @@ export default function MyAccount() {
                           {formatDate(booking.booking_date)}
                         </p>
                         <p className="text-sm text-success-700">
-                          {formatTime(booking.booking_time)}
+                          {formatMealPeriod(booking.meal_period).name}
                         </p>
+                        {formatMealPeriod(booking.meal_period).timeRange && (
+                          <p className="text-xs text-success-600">
+                            {formatMealPeriod(booking.meal_period).timeRange}
+                          </p>
+                        )}
                         {booking.event_note && (
                           <p className="text-xs text-success-600 mt-1">
                             {booking.event_note}

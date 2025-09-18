@@ -67,12 +67,21 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { bookingDate, bookingTime, eventNote, sessionId, guestName, guestEmail, guestPhone, isRecurring, offeringType, donationAmount } = body
+    const { bookingDate, mealPeriod, eventNote, sessionId, guestName, guestEmail, guestPhone, isRecurring, offeringType, donationAmount } = body
 
     // Basic validation
-    if (!bookingDate || !bookingTime) {
+    if (!bookingDate || !mealPeriod) {
       return NextResponse.json(
-        { error: 'Validation failed', message: 'Booking date and time are required' },
+        { error: 'Validation failed', message: 'Booking date and meal period are required' },
+        { status: 400 }
+      )
+    }
+
+    // Validate meal period
+    const validMealPeriods = ['morning_meal', 'morning_tea', 'lunch_meal', 'evening_tea']
+    if (!validMealPeriods.includes(mealPeriod)) {
+      return NextResponse.json(
+        { error: 'Validation failed', message: 'Invalid meal period' },
         { status: 400 }
       )
     }
@@ -131,7 +140,7 @@ export async function POST(request: NextRequest) {
       userId: user.userId,
       tenantId,
       bookingDate,
-      bookingTime,
+      mealPeriod,
       eventNote: eventNote || `Dhane offering ceremony - ${guestName || user.username}`,
       guestName: guestName || undefined,
       guestEmail: guestEmail || undefined,
@@ -181,18 +190,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Clean up temporary reservation if sessionId provided
-    if (sessionId) {
-      try {
-        await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/bookings/reserve-temp`, {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ date: bookingDate, timeSlot: bookingTime, sessionId })
-        })
-      } catch (error) {
-        console.error('Failed to clean up temporary reservation:', error)
-      }
-    }
+    // Note: Temporary reservations are no longer needed with meal period system
+    // Each meal period can only be booked by one person, so no race conditions
 
     const successMessage = isRecurring 
       ? 'Yearly recurring booking created successfully! This booking will automatically repeat every year on the same date and time.'

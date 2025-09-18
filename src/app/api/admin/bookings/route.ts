@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyToken } from '@/lib/jwt'
 import prisma from '@/lib/db'
+import { MEAL_PERIODS, formatMealPeriodName } from '@/lib/utils/mealCategories'
 
 // GET /api/admin/bookings - Get all bookings across tenants (Super Admin only)
 export async function GET(request: NextRequest) {
@@ -71,25 +72,45 @@ export async function GET(request: NextRequest) {
     const totalCount = await prisma.booking.count({ where })
 
     // Transform bookings for response
-    const transformedBookings = bookings.map(booking => ({
-      id: booking.id,
-      user_id: booking.userId,
-      booking_date: booking.bookingDate.toISOString().split('T')[0], // YYYY-MM-DD format
-      booking_time: booking.bookingTime.toISOString().split('T')[1].split('.')[0], // HH:MM:SS format
-      event_note: booking.eventNote,
-      status: booking.status,
-      created_at: booking.createdAt.toISOString(),
-      updated_at: booking.updatedAt.toISOString(),
-      username: booking.user.username,
-      email: booking.user.email,
-      phone_number: booking.user.phoneNumber,
-      tenant: {
-        id: booking.tenant.id,
-        name: booking.tenant.name,
-        subdomain: booking.tenant.subdomain,
-        is_active: booking.tenant.isActive
+    const transformedBookings = bookings.map(booking => {
+      // Handle meal period display
+      let mealPeriodDisplay = null
+      let mealTimeRange = null
+
+      if (booking.mealPeriod && MEAL_PERIODS[booking.mealPeriod as keyof typeof MEAL_PERIODS]) {
+        const mealInfo = MEAL_PERIODS[booking.mealPeriod as keyof typeof MEAL_PERIODS]
+        mealPeriodDisplay = mealInfo.name
+        mealTimeRange = mealInfo.timeRange
+      } else if (booking.mealPeriod) {
+        // Fallback for unknown meal periods
+        mealPeriodDisplay = formatMealPeriodName(booking.mealPeriod as any)
+        mealTimeRange = 'Time not specified'
       }
-    }))
+
+      return {
+        id: booking.id,
+        user_id: booking.userId,
+        booking_date: booking.bookingDate.toISOString().split('T')[0], // YYYY-MM-DD format
+        meal_period: booking.mealPeriod || null,
+        meal_display: mealPeriodDisplay,
+        meal_time_range: mealTimeRange,
+        offering_type: booking.offeringType || 'food_preparation',
+        event_note: booking.eventNote,
+        status: booking.status,
+        is_recurring: booking.isRecurring || false,
+        created_at: booking.createdAt.toISOString(),
+        updated_at: booking.updatedAt.toISOString(),
+        username: booking.user.username,
+        email: booking.user.email,
+        phone_number: booking.user.phoneNumber,
+        tenant: {
+          id: booking.tenant.id,
+          name: booking.tenant.name,
+          subdomain: booking.tenant.subdomain,
+          is_active: booking.tenant.isActive
+        }
+      }
+    })
 
     return NextResponse.json({
       message: 'Bookings retrieved successfully',
@@ -239,24 +260,54 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { 
-      userId, 
-      tenantId, 
-      bookingDate, 
-      bookingTime, 
-      eventNote, 
-      guestName, 
-      guestEmail, 
+    const {
+      userId,
+      tenantId,
+      bookingDate,
+      mealPeriod,
+      eventNote,
+      guestName,
+      guestEmail,
       guestPhone,
+      offeringType = 'food_preparation',
+      donationAmount,
       overrideCapacity = false
     } = body
 
     // Basic validation
-    if (!bookingDate || !bookingTime) {
+    if (!bookingDate || !mealPeriod) {
       return NextResponse.json(
-        { error: 'Validation failed', message: 'Booking date and time are required' },
+        { error: 'Validation failed', message: 'Booking date and meal period are required' },
         { status: 400 }
       )
+    }
+
+    // Validate meal period
+    const validMealPeriods = ['morning_meal', 'morning_tea', 'lunch_meal', 'evening_tea']
+    if (!validMealPeriods.includes(mealPeriod)) {
+      return NextResponse.json(
+        { error: 'Validation failed', message: 'Invalid meal period' },
+        { status: 400 }
+      )
+    }
+
+    // Validate offering type and donation amount
+    const validOfferingTypes = ['food_preparation', 'monetary_donation']
+    if (!validOfferingTypes.includes(offeringType)) {
+      return NextResponse.json(
+        { error: 'Validation failed', message: 'Invalid offering type. Must be food_preparation or monetary_donation' },
+        { status: 400 }
+      )
+    }
+
+    // If monetary donation, validate donation amount
+    if (offeringType === 'monetary_donation') {
+      if (!donationAmount || typeof donationAmount !== 'number' || donationAmount <= 0) {
+        return NextResponse.json(
+          { error: 'Validation failed', message: 'Valid donation amount is required for monetary donations' },
+          { status: 400 }
+        )
+      }
     }
 
     // Validate tenantId for tenant_admin
@@ -295,17 +346,19 @@ export async function POST(request: NextRequest) {
     }
 
     // Create the booking using BookingService but with admin privileges
-    const BookingService = (await import('@/lib/bookings')).default
-    
+    const { BookingService } = await import('@/lib/bookings')
+
     const booking = await BookingService.createBooking({
       userId: userId, // userId is required
       tenantId: tenantId,
       bookingDate,
-      bookingTime,
+      mealPeriod,
       eventNote: eventNote || `Admin booking - ${user.username}`,
       guestName,
-      guestEmail, 
+      guestEmail,
       guestPhone,
+      offeringType,
+      donationAmount,
       isRecurring: false,
       adminOverride: overrideCapacity || false // Allow admin to choose override
     })
@@ -319,11 +372,13 @@ export async function POST(request: NextRequest) {
         targetId: booking.id,
         details: {
           booking_date: bookingDate,
-          booking_time: bookingTime,
+          meal_period: mealPeriod,
           target_user_id: userId,
           guest_name: guestName,
           tenant_id: tenantId,
-          override_capacity: overrideCapacity
+          override_capacity: overrideCapacity,
+          offering_type: offeringType,
+          donation_amount: donationAmount
         }
       }
     })

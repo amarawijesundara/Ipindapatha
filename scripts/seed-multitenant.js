@@ -201,7 +201,8 @@ async function seedMultiTenant() {
     }
 
     // 7. Create availability slots for each tenant (next 30 days, weekdays only)
-    const timeSlots = ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00']
+    // Authentic Monastic Meal Time Slots
+    const timeSlots = ['06:30', '07:00', '07:30', '09:30', '10:00', '10:30', '11:30', '12:00', '15:00', '15:30', '16:00']
     const startDate = new Date()
     
     for (const tenant of createdTenants) {

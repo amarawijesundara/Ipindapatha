@@ -1,20 +1,67 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { BookingService } from '@/lib/bookings'
 import prisma from '@/lib/db'
-import { createTimeFromString, formatDateForDatabase } from '@/lib/utils/dateValidation'
+import { formatDateForDatabase } from '@/lib/utils/dateValidation'
 
-// Helper function to get temporary reservations
-async function getTemporaryReservations() {
-  try {
-    const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/bookings/reserve-temp`)
-    if (response.ok) {
-      const data = await response.json()
-      return data.temporaryReservations || []
-    }
-  } catch (error) {
-    console.error('Error fetching temporary reservations:', error)
+// Meal period definitions with time ranges for display
+const MEAL_PERIODS = {
+  morning_meal: {
+    name: 'Morning Meal',
+    icon: '🌅',
+    timeRange: '6:30 AM - 7:30 AM',
+    description: 'First meal of the day',
+    color: 'bg-amber-50 border-amber-200 text-amber-800'
+  },
+  morning_tea: {
+    name: 'Morning Tea',
+    icon: '🍵',
+    timeRange: '9:30 AM - 10:30 AM',
+    description: 'Morning refreshment',
+    color: 'bg-green-50 border-green-200 text-green-800'
+  },
+  lunch_meal: {
+    name: 'Lunch Meal',
+    icon: '🍽️',
+    timeRange: '11:30 AM - 12:00 PM',
+    description: 'Main meal - last food before evening',
+    color: 'bg-orange-50 border-orange-200 text-orange-800'
+  },
+  evening_tea: {
+    name: 'Evening Tea',
+    icon: '☕',
+    timeRange: '3:00 PM - 4:00 PM',
+    description: 'Final refreshment of the day',
+    color: 'bg-blue-50 border-blue-200 text-blue-800'
   }
-  return []
+}
+
+// Helper function to get meal cost from tenant settings
+async function getMealCosts(tenantId: number) {
+  try {
+    const settings = await prisma.tenantSettings.findFirst({
+      where: { tenantId },
+      select: { mealCosts: true }
+    })
+
+    // Default costs if not configured
+    const defaultCosts = {
+      morning_meal: 75,
+      morning_tea: 25,
+      lunch_meal: 100,
+      evening_tea: 30
+    }
+
+    return settings?.mealCosts ?
+      { ...defaultCosts, ...settings.mealCosts } :
+      defaultCosts
+  } catch (error) {
+    console.error('Error fetching meal costs:', error)
+    return {
+      morning_meal: 75,
+      morning_tea: 25,
+      lunch_meal: 100,
+      evening_tea: 30
+    }
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -24,8 +71,7 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get('start_date')
     const endDate = searchParams.get('end_date')
     const limitParam = searchParams.get('limit')
-    const sessionId = searchParams.get('sessionId') // Add session context
-    
+
     // Validate and parse limit parameter
     let limit = 30 // default
     if (limitParam) {
@@ -39,125 +85,151 @@ export async function GET(request: NextRequest) {
       limit = parsedLimit
     }
 
-    // Get availability (public access - no authentication required)
     // Use default tenant ID for multi-tenant system
     const DEFAULT_TENANT_ID = 1
-    const availability = await BookingService.getAvailability(
-      DEFAULT_TENANT_ID,
-      {
-        date: date || undefined,
-        startDate: startDate || undefined,
-        endDate: endDate || undefined,
-        limit
-      }
-    )
 
-    // Get temporary reservations to show "partially booked" status
-    const tempReservations = await getTemporaryReservations()
-    
-    // Get actual booking counts for each slot
-    const enhancedAvailability = await Promise.all(availability.map(async slot => {
-      const slotDate = formatDateForDatabase(new Date(slot.date))
-      const slotTime = slot.timeSlot || slot.time_slot
-      
-      // Check for temporary reservations
-      const tempReservation = tempReservations.find(temp => 
-        temp.date === slotDate && temp.timeSlot === slotTime
-      )
-      
-      // Check if this is the current user's reservation
-      const isMyReservation = tempReservation && sessionId && tempReservation.sessionId === sessionId
-      
-      // Count actual bookings for this slot
-      let bookingCount = 0
-      try {
-        // Parse date and time correctly using proper PostgreSQL type casting
-        const bookingTime = createTimeFromString(slotTime)
-        
-        if (bookingTime) {
-          // Extract time portion from Date object for PostgreSQL TIME comparison
-          const timeString = bookingTime.toISOString().substring(11, 19) // "HH:MM:SS"
-          
-          // Use string date casting to avoid timezone issues with JavaScript Date objects
-          const result = await prisma.$queryRaw`
-            SELECT COUNT(*) as count 
-            FROM bookings 
-            WHERE tenant_id = ${DEFAULT_TENANT_ID}
-              AND booking_date = ${slotDate}::date
-              AND booking_time = ${timeString}::time
-              AND status IN ('pending', 'confirmed')
-          `
-          bookingCount = Number(result[0]?.count) || 0
+    // Get meal costs for this tenant
+    const mealCosts = await getMealCosts(DEFAULT_TENANT_ID)
+
+    // Generate date range
+    let dates: Date[] = []
+    if (date) {
+      dates = [new Date(date)]
+    } else {
+      const start = startDate ? new Date(startDate) : new Date()
+      const end = endDate ? new Date(endDate) : new Date(Date.now() + limit * 24 * 60 * 60 * 1000)
+
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        dates.push(new Date(d))
+      }
+
+      if (dates.length > limit) {
+        dates = dates.slice(0, limit)
+      }
+    }
+
+    const availability = []
+
+    for (const currentDate of dates) {
+      const dateStr = formatDateForDatabase(currentDate)
+
+      // Check each meal period for this date
+      for (const [mealPeriodId, mealInfo] of Object.entries(MEAL_PERIODS)) {
+
+        // Check if this meal period is booked
+        const existingBooking = await prisma.booking.findFirst({
+          where: {
+            tenantId: DEFAULT_TENANT_ID,
+            bookingDate: currentDate,
+            mealPeriod: mealPeriodId,
+            status: { in: ['pending', 'confirmed'] }
+          },
+          include: {
+            user: {
+              select: {
+                username: true,
+                email: true
+              }
+            }
+          }
+        })
+
+        // Check for availability overrides
+        const override = await prisma.availabilityOverride.findFirst({
+          where: {
+            tenantId: DEFAULT_TENANT_ID,
+            date: currentDate,
+            mealPeriod: mealPeriodId,
+            isActive: true
+          }
+        })
+
+        // Check recurring bookings
+        const recurringBooking = await prisma.recurringBooking.findFirst({
+          where: {
+            tenantId: DEFAULT_TENANT_ID,
+            bookingMonth: currentDate.getMonth() + 1,
+            bookingDay: currentDate.getDate(),
+            mealPeriod: mealPeriodId,
+            isActive: true
+          },
+          include: {
+            user: {
+              select: {
+                username: true,
+                email: true
+              }
+            }
+          }
+        })
+
+        // Determine availability status
+        let isAvailable = true
+        let isBooked = false
+        let bookedBy = null
+        let status = 'available'
+        let source = 'generated'
+
+        if (override?.overrideType === 'disable') {
+          isAvailable = false
+          status = 'disabled'
+          source = 'override'
+        } else if (recurringBooking) {
+          isAvailable = false
+          isBooked = true
+          bookedBy = recurringBooking.user
+          status = 'recurring_booked'
+          source = 'recurring'
+        } else if (existingBooking) {
+          isAvailable = false
+          isBooked = true
+          bookedBy = existingBooking.user
+          status = 'booked'
+          source = 'booking'
         }
-        
-      } catch (error) {
-        console.error(`Error counting bookings for slot ${slotDate} ${slotTime}:`, error)
+
+        availability.push({
+          date: dateStr,
+          mealPeriod: mealPeriodId,
+          mealName: mealInfo.name,
+          icon: mealInfo.icon,
+          timeRange: mealInfo.timeRange,
+          description: mealInfo.description,
+          color: mealInfo.color,
+          cost: mealCosts[mealPeriodId],
+          isAvailable,
+          isBooked,
+          bookedBy: bookedBy ? {
+            username: bookedBy.username,
+            email: bookedBy.email
+          } : null,
+          status,
+          source
+        })
       }
-      
-      // Determine slot status
-      let status = 'available'
-      let isAvailable = slot.is_available
-      const maxBookings = slot.max_bookings || 1
-      
-      if (slot.source === 'recurring_blocked') {
-        status = 'recurring_booked'
-        isAvailable = false
-      } else if (tempReservation) {
-        status = isMyReservation ? 'my_reservation' : 'partially_booked'
-        isAvailable = isMyReservation || bookingCount < maxBookings
-      } else if (bookingCount >= maxBookings) {
-        status = 'fully_booked'
-        isAvailable = false
-      } else if (bookingCount > 0) {
-        status = 'partially_available'
-        isAvailable = true
-      } else {
-        // Available slot with no bookings
-        status = 'available'
-        isAvailable = true
-      }
-      
-      return {
-        ...slot,
-        booking_count: bookingCount,
-        available_slots: Math.max(0, maxBookings - bookingCount),
-        status,
-        is_available: isAvailable,
-        isTemporarilyReserved: !!tempReservation,
-        isMyReservation: !!isMyReservation,
-        reservationExpiresAt: tempReservation?.expiresAt,
-        reservationSessionId: tempReservation?.sessionId
-      }
-    }))
+    }
 
     return NextResponse.json({
-      message: 'Availability retrieved successfully',
-      availability: enhancedAvailability,
-      temporaryReservationsCount: tempReservations.length
+      message: 'Meal-based availability retrieved successfully',
+      availability,
+      mealPeriods: MEAL_PERIODS,
+      mealCosts
     })
 
   } catch (error: any) {
-    console.error('Get availability error:', error)
-    
+    console.error('Get meal availability error:', error)
+
     // Handle validation errors with specific error messages
-    if (error.message && error.message.includes('Invalid date filters')) {
+    if (error.message && error.message.includes('Invalid date')) {
       return NextResponse.json(
         { error: 'Date validation error', message: error.message },
         { status: 400 }
       )
     }
-    
-    // Handle other known error types
-    if (error.message && error.message.includes('date')) {
-      return NextResponse.json(
-        { error: 'Date format error', message: 'Please provide dates in YYYY-MM-DD format' },
-        { status: 400 }
-      )
-    }
-    
+
     // Generic server error for unknown issues
     return NextResponse.json(
-      { error: 'Internal server error', message: 'Failed to retrieve availability' },
+      { error: 'Internal server error', message: 'Failed to retrieve meal availability' },
       { status: 500 }
     )
   }

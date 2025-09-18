@@ -143,34 +143,44 @@ async function seed() {
       console.log('Site content already exists, skipping content seeding')
     }
 
-    // Seed availability data
-    const existingAvailabilityResult = await pool.query('SELECT COUNT(*) FROM booking_availability')
-    const existingAvailabilityCount = parseInt(existingAvailabilityResult.rows[0].count)
+    // Seed tenant settings with default meal costs
+    const existingTenantSettingsResult = await pool.query('SELECT COUNT(*) FROM tenant_settings')
+    const existingTenantSettingsCount = parseInt(existingTenantSettingsResult.rows[0].count)
 
-    if (existingAvailabilityCount === 0) {
-      const timeSlots = ['09:00:00', '10:00:00', '11:00:00', '14:00:00', '15:00:00', '16:00:00', '17:00:00']
-      const today = new Date()
-      
-      for (let i = 0; i < 30; i++) {
-        const date = new Date(today)
-        date.setDate(today.getDate() + i)
-        
-        // Skip weekends
-        if (date.getDay() === 0 || date.getDay() === 6) continue
-        
-        for (const timeSlot of timeSlots) {
-          await pool.query(`
-            INSERT INTO booking_availability (date, time_slot, is_available, max_bookings)
-            VALUES ($1, $2, $3, $4)
-          `, [date.toISOString().split('T')[0], timeSlot, true, 1])
-        }
+    if (existingTenantSettingsCount === 0) {
+      // Default meal costs based on monastic meal periods
+      const defaultMealCosts = {
+        morning_meal: 75,
+        morning_tea: 25,
+        lunch_meal: 100,
+        evening_tea: 30
       }
-      console.log('Default availability seeded (next 30 days, weekdays only)')
+
+      // Create default tenant settings (assuming tenant_id = 1 for single tenant setup)
+      await pool.query(`
+        INSERT INTO tenant_settings (tenant_id, meal_costs)
+        VALUES ($1, $2)
+      `, [1, JSON.stringify(defaultMealCosts)])
+
+      console.log('Default tenant settings with meal costs seeded')
     } else {
-      console.log('Availability data already exists, skipping seeding')
+      console.log('Tenant settings already exist, skipping seeding')
     }
+
+    // Note: Meal period availability is now generated dynamically by the availability API
+    // No need to seed individual time slots - the system will generate meal period availability on demand
     
-    console.log('Database seeding completed successfully!')
+    console.log('🎉 Database seeding completed successfully!')
+    console.log('\n📋 Summary:')
+    console.log('- Super Admin: admin@example.com / SuperAdmin123!')
+    console.log('- Tenant Admin: admin@ipindapatha.com / TenantAdmin123')
+    console.log('- Default meal costs configured:')
+    console.log('  🌅 Morning Meal: $75 (6:30-7:30 AM)')
+    console.log('  🍵 Morning Tea: $25 (9:30-10:30 AM)')
+    console.log('  🍽️ Lunch Meal: $100 (11:30-12:00 PM)')
+    console.log('  ☕ Evening Tea: $30 (3:00-4:00 PM)')
+    console.log('- Site content (English and Sinhala) configured')
+    console.log('- Meal period availability generated dynamically')
     
   } catch (error) {
     console.error('Seeding failed:', error)

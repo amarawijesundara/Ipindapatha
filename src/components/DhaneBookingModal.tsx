@@ -7,22 +7,12 @@ import { useAuth } from '@/components/AuthContext'
 import BookingDetailsView from '@/components/BookingDetailsView'
 import UserSelector from '@/components/UserSelector'
 import { formatDateForBooking } from '@/lib/utils/dateValidation'
+import { MealPeriodId, MealAvailability } from '@/types'
 
 interface DhaneBookingModalProps {
   selectedDate: Date | null
   onClose: () => void
   onBookingComplete: () => void
-}
-
-interface TimeSlot {
-  time: string
-  available: boolean
-  maxBookings: number
-  isTemporarilyReserved?: boolean
-  isMyReservation?: boolean
-  reservationExpiresAt?: string
-  reservationSessionId?: string
-  status?: string
 }
 
 interface BookingFormData {
@@ -45,17 +35,16 @@ interface User {
 
 export default function DhaneBookingModal({ selectedDate, onClose, onBookingComplete }: DhaneBookingModalProps) {
   const { user } = useAuth()
-  const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([])
-  const [selectedTimes, setSelectedTimes] = useState<string[]>([])
+  const [mealAvailability, setMealAvailability] = useState<MealAvailability[]>([])
+  const [selectedMealPeriods, setSelectedMealPeriods] = useState<MealPeriodId[]>([])
   const [loading, setLoading] = useState(false)
-  const [fetchingSlots, setFetchingSlots] = useState(true)
-  const [reservationTimer, setReservationTimer] = useState<number | null>(null)
+  const [fetchingAvailability, setFetchingAvailability] = useState(true)
   const [showAuthPrompt, setShowAuthPrompt] = useState(false)
-  const [sessionId] = useState(() => Math.random().toString(36).substring(7))
   const [isRecurring, setIsRecurring] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
   const [showBookingDetails, setShowBookingDetails] = useState(false)
-  
+  const [mealCosts, setMealCosts] = useState<Record<string, number>>({})
+
   // Form data state
   const [formData, setFormData] = useState<BookingFormData>({
     name: '',
@@ -65,7 +54,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
     offeringType: 'food_preparation',
     donationAmount: 0
   })
-  
+
   // Admin-specific state
   const isAdmin = user?.role === 'super_admin' || user?.role === 'tenant_admin'
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null)
@@ -88,164 +77,86 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
 
   useEffect(() => {
     if (selectedDate) {
-      fetchTimeSlots()
+      fetchMealAvailability()
     }
   }, [selectedDate])
 
-  // Check if all time slots are fully booked
-  const hasAvailableSlots = timeSlots.some(slot => slot.available)
-  const isFullyBooked = timeSlots.length > 0 && !hasAvailableSlots
+  // Check if all meal periods are fully booked
+  const hasAvailableMeals = mealAvailability.some(meal => meal.isAvailable)
+  const isFullyBooked = mealAvailability.length > 0 && !hasAvailableMeals
 
   // Show booking details view for fully booked dates
   useEffect(() => {
-    if (!fetchingSlots && isFullyBooked && !user) {
+    if (!fetchingAvailability && isFullyBooked && !user) {
       setShowBookingDetails(true)
     } else {
       setShowBookingDetails(false)
     }
-  }, [fetchingSlots, isFullyBooked, user])
+  }, [fetchingAvailability, isFullyBooked, user])
 
-  // Cleanup reservations when component unmounts or date changes
+  // Automatically calculate donation amount based on selected meal periods
   useEffect(() => {
-    return () => {
-      // Cleanup on unmount
-      cleanupReservations()
-    }
-  }, [selectedDate])
+    if (formData.offeringType === 'monetary_donation') {
+      const totalCost = selectedMealPeriods.reduce((total, periodId) => {
+        const meal = mealAvailability.find(m => m.mealPeriod === periodId)
+        return total + (meal?.cost || 0)
+      }, 0)
 
-  const handleModalClose = async () => {
-    await cleanupReservations()
+      setFormData(prev => ({ ...prev, donationAmount: totalCost }))
+    }
+  }, [selectedMealPeriods, formData.offeringType, mealAvailability])
+
+  const handleModalClose = () => {
     onClose()
   }
 
   const handleContinueToSignIn = () => {
     // For guest users, allow proceeding to auth without form validation
-    if (!user && selectedTimes.length > 0) {
+    if (!user && selectedMealPeriods.length > 0) {
       // Store booking data with minimal info - form completion can happen after auth
       localStorage.setItem('pendingBooking', JSON.stringify({
         ...formData, // Include any partial form data
         date: selectedDate ? formatDateForBooking(selectedDate) : '',
-        times: selectedTimes,
-        sessionId
+        mealPeriods: selectedMealPeriods
       }))
       setShowAuthPrompt(true)
       return
     }
-    
+
     // For authenticated users, use normal form submission
     if (user) {
-      createBatchBooking()
+      createBookings()
     }
   }
 
-  const fetchTimeSlots = async () => {
+  const fetchMealAvailability = async () => {
     if (!selectedDate) return
-    
+
     try {
       const dateStr = formatDateForBooking(selectedDate)
-      const response = await fetch(`/api/bookings/availability?date=${dateStr}&sessionId=${sessionId}`, {
+      const response = await fetch(`/api/bookings/availability?date=${dateStr}`, {
         credentials: 'include'
       })
 
       if (response.ok) {
         const data = await response.json()
-        const slots = data.availability.map((slot: any) => ({
-          time: slot.timeSlot || slot.time_slot,
-          available: slot.is_available,
-          maxBookings: slot.max_bookings,
-          isTemporarilyReserved: slot.isTemporarilyReserved,
-          isMyReservation: slot.isMyReservation,
-          reservationExpiresAt: slot.reservationExpiresAt,
-          reservationSessionId: slot.reservationSessionId,
-          status: slot.status
-        }))
-        
-        // Sort time slots
-        slots.sort((a: TimeSlot, b: TimeSlot) => a.time.localeCompare(b.time))
-        setTimeSlots(slots)
+        setMealAvailability(data.availability || [])
+        setMealCosts(data.mealCosts || {})
       }
     } catch (error) {
-      console.error('Failed to fetch time slots:', error)
+      console.error('Failed to fetch meal availability:', error)
     } finally {
-      setFetchingSlots(false)
-    }
-  }
-
-  const reserveSlotsTemporarily = async (timeSlots: string[]) => {
-    try {
-      const response = await fetch('/api/bookings/reserve-temp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date: selectedDate ? formatDateForBooking(selectedDate) : '',
-          timeSlots, // Changed to array
-          sessionId
-        })
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        setReservationTimer(15 * 60) // 15 minutes in seconds
-        startCountdown()
-        return true
-      }
-    } catch (error) {
-      console.error('Failed to reserve slots:', error)
-    }
-    return false
-  }
-
-  const startCountdown = () => {
-    const interval = setInterval(() => {
-      setReservationTimer((prev) => {
-        if (prev === null || prev <= 1) {
-          clearInterval(interval)
-          setSelectedTimes([])
-          fetchTimeSlots() // Refresh availability
-          return null
-        }
-        return prev - 1
-      })
-    }, 1000)
-  }
-
-  const handleTimeSlotSelect = async (timeSlot: string) => {
-    setValidationError(null) // Clear any existing errors when user selects a slot
-    
-    const isSelected = selectedTimes.includes(timeSlot)
-    let newSelectedTimes: string[]
-    
-    if (isSelected) {
-      // Remove from selection
-      newSelectedTimes = selectedTimes.filter(time => time !== timeSlot)
-    } else {
-      // Add to selection
-      newSelectedTimes = [...selectedTimes, timeSlot]
-    }
-    
-    setSelectedTimes(newSelectedTimes)
-    
-    if (!user && newSelectedTimes.length > 0) {
-      // For guests, reserve all selected slots temporarily
-      const reserved = await reserveSlotsTemporarily(newSelectedTimes)
-      if (!reserved) {
-        setValidationError('Unable to reserve selected slots. Some may have been taken by other users.')
-        setSelectedTimes([])
-        fetchTimeSlots()
-      }
+      setFetchingAvailability(false)
     }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!selectedDate || selectedTimes.length === 0) return
+    if (!selectedDate || selectedMealPeriods.length === 0) return
 
     // Clear any existing validation errors
     setValidationError(null)
-    
-    // This form submit handler is for when users have filled out the form
-    // The main "Continue to Sign In" button uses handleContinueToSignIn instead
-    
+
     // Admin validation - must select a user
     if (isAdmin && !selectedUserId) {
       setValidationError('Please select a user to book for')
@@ -270,52 +181,50 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
         setValidationError('Please fill in your name and email address')
         return
       }
-      
+
       // Store complete form data and show auth prompt
       localStorage.setItem('pendingBooking', JSON.stringify({
         ...formData,
         date: formatDateForBooking(selectedDate),
-        times: selectedTimes,
-        sessionId
+        mealPeriods: selectedMealPeriods
       }))
       setShowAuthPrompt(true)
       return
     }
 
-    // Authenticated user - proceed with batch booking
-    await createBatchBooking()
+    // Authenticated user - proceed with bookings
+    await createBookings()
   }
 
-  const createBatchBooking = async () => {
+  const createBookings = async () => {
     setLoading(true)
 
     try {
-      const bookingPromises = selectedTimes.map(async (timeSlot) => {
+      const bookingPromises = selectedMealPeriods.map(async (mealPeriod) => {
         // Determine target user and booking data based on admin status
         const targetUserId = isAdmin && selectedUserId ? selectedUserId : user?.id
-        
+
         const bookingData = {
           userId: targetUserId,
           tenantId: user?.tenant_id || 1,
           bookingDate: selectedDate ? formatDateForBooking(selectedDate) : '',
-          bookingTime: timeSlot,
+          mealPeriod: mealPeriod,
           eventNote: formData.eventNote || `${isRecurring ? 'Yearly ' : ''}Dhane offering ceremony - ${
-            isAdmin && selectedTargetUser ? selectedTargetUser.username : 
+            isAdmin && selectedTargetUser ? selectedTargetUser.username :
             formData.name || user?.username
-          } (${selectedTimes.length > 1 ? `${selectedTimes.indexOf(timeSlot) + 1} of ${selectedTimes.length}` : 'Single slot'})`,
+          } (${mealPeriod.replace('_', ' ')})`,
           offeringType: formData.offeringType,
           donationAmount: formData.offeringType === 'monetary_donation' ? formData.donationAmount : undefined,
           guestName: isAdmin && selectedTargetUser ? selectedTargetUser.username : (!user ? formData.name : undefined),
           guestEmail: isAdmin && selectedTargetUser ? selectedTargetUser.email : (!user ? formData.email : undefined),
           guestPhone: isAdmin && selectedTargetUser ? selectedTargetUser.phoneNumber : (!user ? formData.phone : undefined),
-          sessionId,
           isRecurring,
           overrideCapacity: adminOverride
         }
 
         // Use admin endpoint if user is admin
         const endpoint = isAdmin ? '/api/admin/bookings' : '/api/bookings'
-        
+
         const response = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -325,7 +234,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
 
         if (!response.ok) {
           const errorData = await response.json()
-          throw new Error(`Failed to book ${timeSlot}: ${errorData.message}`)
+          throw new Error(`Failed to book ${mealPeriod}: ${errorData.message}`)
         }
 
         return await response.json()
@@ -333,17 +242,17 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
 
       // Execute all bookings
       const results = await Promise.allSettled(bookingPromises)
-      
+
       // Check for failures
       const failures = results.filter(result => result.status === 'rejected') as PromiseRejectedResult[]
       const successes = results.filter(result => result.status === 'fulfilled').length
-      
+
       if (failures.length > 0 && successes === 0) {
         // All bookings failed
         setValidationError(`Failed to create any bookings: ${failures[0].reason.message}`)
       } else if (failures.length > 0) {
         // Some bookings failed
-        setValidationError(`Created ${successes} bookings successfully, but ${failures.length} failed. Please check your bookings and try again for the failed slots.`)
+        setValidationError(`Created ${successes} bookings successfully, but ${failures.length} failed. Please check your bookings and try again for the failed meal periods.`)
         // Still close modal on partial success
         setTimeout(() => {
           onBookingComplete()
@@ -351,19 +260,6 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
         }, 3000)
       } else {
         // All bookings succeeded
-        // Release temporary reservations
-        if (!user) {
-          await fetch('/api/bookings/reserve-temp', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              date: selectedDate ? formatDateForBooking(selectedDate) : '',
-              timeSlots: selectedTimes,
-              sessionId
-            })
-          })
-        }
-        
         localStorage.removeItem('pendingBooking')
         onBookingComplete()
         onClose()
@@ -385,68 +281,38 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
     })
   }
 
-  const formatTime = (time: string): string => {
-    const [hours, minutes] = time.split(':')
-    const hour12 = parseInt(hours) % 12 || 12
-    const ampm = parseInt(hours) >= 12 ? 'PM' : 'AM'
-    return `${hour12}:${minutes} ${ampm}`
-  }
-
-  const formatTimer = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins}:${secs.toString().padStart(2, '0')}`
-  }
-
   const handleAuthRedirect = (type: 'login' | 'register') => {
     // Store current form data
     localStorage.setItem('pendingBooking', JSON.stringify({
       ...formData,
       date: selectedDate ? formatDateForBooking(selectedDate) : '',
-      times: selectedTimes, // Updated to array
-      sessionId
+      mealPeriods: selectedMealPeriods
     }))
-    
+
     // Redirect to auth page
     window.location.href = `/${type}?redirect=/`
   }
 
-  const handleSelectAllAvailable = async () => {
-    const availableSlots = timeSlots.filter(slot => slot.available).map(slot => slot.time)
-    setSelectedTimes(availableSlots)
-    
-    if (!user && availableSlots.length > 0) {
-      const reserved = await reserveSlotsTemporarily(availableSlots)
-      if (!reserved) {
-        setValidationError('Unable to reserve all available slots. Some may have been taken by other users.')
-        setSelectedTimes([])
-        fetchTimeSlots()
-      }
+  const handleMealPeriodToggle = (mealPeriodId: MealPeriodId) => {
+    setValidationError(null)
+
+    if (selectedMealPeriods.includes(mealPeriodId)) {
+      setSelectedMealPeriods(prev => prev.filter(id => id !== mealPeriodId))
+    } else {
+      setSelectedMealPeriods(prev => [...prev, mealPeriodId])
     }
+  }
+
+  const handleSelectAll = () => {
+    const availableMealPeriods = mealAvailability
+      .filter(meal => meal.isAvailable)
+      .map(meal => meal.mealPeriod)
+    setSelectedMealPeriods(availableMealPeriods)
   }
 
   const handleClearSelection = () => {
-    setSelectedTimes([])
+    setSelectedMealPeriods([])
     setValidationError(null)
-  }
-
-  const cleanupReservations = async () => {
-    // Clean up any temporary reservations when modal closes
-    if (selectedTimes.length > 0) {
-      try {
-        await fetch('/api/bookings/reserve-temp', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            date: selectedDate ? formatDateForBooking(selectedDate) : '',
-            timeSlots: selectedTimes,
-            sessionId
-          })
-        })
-      } catch (error) {
-        console.error('Failed to cleanup reservations:', error)
-      }
-    }
   }
 
   if (!selectedDate) return null
@@ -463,11 +329,11 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
             {formatDate(selectedDate)}
           </p>
         </CardHeader>
-        
+
         <CardContent className="p-6 flex-1 overflow-y-auto">
-          {fetchingSlots ? (
+          {fetchingAvailability ? (
             <div className="text-center py-8">
-              <div className="text-monastery-600">Loading available times...</div>
+              <div className="text-monastery-600">Loading meal availability...</div>
             </div>
           ) : showBookingDetails ? (
             <BookingDetailsView
@@ -483,19 +349,21 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
                   Sign In to Complete Booking
                 </h3>
                 <p className="text-sm text-monastery-600 mb-4">
-                  Your {selectedTimes.length} slot{selectedTimes.length > 1 ? 's are' : ' is'} temporarily reserved for {reservationTimer ? formatTimer(reservationTimer) : '15:00'}
+                  Your {selectedMealPeriods.length} meal period{selectedMealPeriods.length > 1 ? 's are' : ' is'} selected
                 </p>
                 <div className="bg-lotus-100 rounded-lg p-4 mb-6">
                   <h4 className="font-medium text-monastery-800 mb-2">Your Booking Details</h4>
                   <div className="space-y-1 text-sm text-monastery-700">
                     <div><strong>Date:</strong> {formatDate(selectedDate!)}</div>
-                    <div><strong>Time{selectedTimes.length > 1 ? 's' : ''}:</strong> {selectedTimes.sort().map(formatTime).join(', ')}</div>
+                    <div><strong>Meal Periods:</strong> {selectedMealPeriods.map(period =>
+                      period.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())
+                    ).join(', ')}</div>
                     <div><strong>Name:</strong> {formData.name}</div>
                     <div><strong>Email:</strong> {formData.email}</div>
                   </div>
                 </div>
               </div>
-              
+
               <div className="space-y-3">
                 <Button
                   type="button"
@@ -514,7 +382,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
                   Create New Account
                 </Button>
               </div>
-              
+
               <div className="flex gap-3 pt-4">
                 <Button
                   type="button"
@@ -561,27 +429,14 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
                   </div>
                 </div>
               )}
-              
-              {/* Reservation Timer for Guests */}
-              {!user && selectedTimes.length > 0 && reservationTimer && (
-                <div className="bg-warning-50 border border-warning-200 rounded-lg p-3">
-                  <div className="flex items-center gap-2">
-                    <div className="text-warning-600">⏱️</div>
-                    <div className="text-sm">
-                      <span className="font-medium text-warning-800">{selectedTimes.length} slot{selectedTimes.length > 1 ? 's' : ''} reserved for:</span>
-                      <span className="ml-2 font-mono text-warning-700">{formatTimer(reservationTimer)}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-              
+
               {/* Admin Controls */}
               {isAdmin && (
                 <div className="space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
                   <h4 className="font-medium text-blue-800 flex items-center">
                     👑 Admin Booking Controls
                   </h4>
-                  
+
                   <div>
                     <label className="block text-sm font-medium text-blue-800 mb-2">
                       Book for User *
@@ -601,7 +456,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
                       </p>
                     )}
                   </div>
-                  
+
                   <div className="flex items-center space-x-2">
                     <input
                       type="checkbox"
@@ -614,10 +469,10 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
                       Override capacity restrictions
                     </label>
                   </div>
-                  
+
                   {adminOverride && (
                     <div className="text-xs text-amber-600 bg-amber-50 p-2 rounded">
-                      ⚠️ Admin override will bypass normal booking restrictions and capacity limits
+                      ⚠️ Admin override will bypass normal booking restrictions
                     </div>
                   )}
                 </div>
@@ -627,7 +482,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
               {!user && !isAdmin && (
                 <div className="space-y-4">
                   <h4 className="font-medium text-monastery-800">Your Information</h4>
-                  
+
                   <div>
                     <label className="block text-sm font-medium text-monastery-800 mb-2">
                       Full Name *
@@ -640,7 +495,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
                       required
                     />
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium text-monastery-800 mb-2">
                       Email Address *
@@ -653,7 +508,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
                       required
                     />
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium text-monastery-800 mb-2">
                       Phone Number (Optional)
@@ -667,7 +522,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
                   </div>
                 </div>
               )}
-              
+
               {/* Offering Type Selection */}
               <div className="space-y-4">
                 <h4 className="font-medium text-monastery-800">Offering Type</h4>
@@ -720,11 +575,11 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
               {formData.offeringType === 'monetary_donation' && selectedDate && (
                 <div className="space-y-4 p-4 bg-lotus-50 rounded-lg border border-monastery-200">
                   <h5 className="font-medium text-monastery-800">Donation Details</h5>
-                  
+
                   {/* Payment Deadline Warning */}
                   {selectedDate && (
                     <div className={`p-3 rounded-lg border ${
-                      isPaymentDeadlinePassed(selectedDate) 
+                      isPaymentDeadlinePassed(selectedDate)
                         ? 'bg-error-50 border-error-200'
                         : 'bg-warning-50 border-warning-200'
                     }`}>
@@ -732,14 +587,14 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
                         <span className="text-lg">⏰</span>
                         <div>
                           <p className={`font-medium ${
-                            isPaymentDeadlinePassed(selectedDate) 
+                            isPaymentDeadlinePassed(selectedDate)
                               ? 'text-error-800'
                               : 'text-warning-800'
                           }`}>
                             Payment Deadline: {calculatePaymentDeadline(selectedDate).toLocaleDateString()}
                           </p>
                           <p className={`text-sm mt-1 ${
-                            isPaymentDeadlinePassed(selectedDate) 
+                            isPaymentDeadlinePassed(selectedDate)
                               ? 'text-error-600'
                               : 'text-warning-600'
                           }`}>
@@ -753,151 +608,141 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
                     </div>
                   )}
 
-                  {/* Donation Amount */}
-                  {!isPaymentDeadlinePassed(selectedDate!) && (
-                    <div>
-                      <label className="block text-sm font-medium text-monastery-800 mb-2">
-                        Donation Amount (USD)
-                      </label>
-                      
-                      {/* Suggested Amounts */}
-                      <div className="grid grid-cols-3 gap-2 mb-3">
-                        {[25, 50, 100].map((amount) => (
-                          <button
-                            key={amount}
-                            type="button"
-                            onClick={() => setFormData(prev => ({ ...prev, donationAmount: amount }))}
-                            className={`p-2 rounded-lg border text-sm font-medium transition-colors ${
-                              formData.donationAmount === amount
-                                ? 'bg-primary-500 text-white border-primary-500'
-                                : 'bg-white text-monastery-700 border-monastery-200 hover:border-primary-300 hover:bg-primary-50'
-                            }`}
-                          >
-                            ${amount}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Custom Amount */}
-                      <div className="flex items-center space-x-2">
-                        <span className="text-sm text-monastery-600">Custom:</span>
-                        <Input
-                          type="number"
-                          min="1"
-                          step="1"
-                          value={formData.donationAmount || ''}
-                          onChange={(e) => setFormData(prev => ({ ...prev, donationAmount: parseInt(e.target.value) || 0 }))}
-                          placeholder="Enter amount"
-                          className="w-32"
-                        />
-                      </div>
-
-                      {formData.donationAmount > 0 && (
-                        <div className="text-xs text-monastery-600 mt-2">
-                          💡 After booking, you&apos;ll receive payment instructions and can upload your receipt for verification.
+                  {/* Total Cost Display */}
+                  {selectedMealPeriods.length > 0 && (
+                    <div className="bg-primary-50 p-3 rounded-lg">
+                      <h6 className="font-medium text-primary-800 mb-2">Total Cost Breakdown</h6>
+                      <div className="space-y-1 text-sm">
+                        {selectedMealPeriods.map(periodId => {
+                          const meal = mealAvailability.find(m => m.mealPeriod === periodId)
+                          return meal ? (
+                            <div key={periodId} className="flex justify-between">
+                              <span className="text-primary-700">{meal.mealName}:</span>
+                              <span className="font-medium text-primary-800">${meal.cost}</span>
+                            </div>
+                          ) : null
+                        })}
+                        <div className="border-t border-primary-200 pt-1 mt-2 flex justify-between font-semibold">
+                          <span className="text-primary-800">Total:</span>
+                          <span className="text-primary-800">
+                            ${selectedMealPeriods.reduce((total, periodId) => {
+                              const meal = mealAvailability.find(m => m.mealPeriod === periodId)
+                              return total + (meal?.cost || 0)
+                            }, 0)}
+                          </span>
                         </div>
-                      )}
+                      </div>
                     </div>
                   )}
                 </div>
               )}
-              
-              {/* Time Selection */}
+
+              {/* Meal Period Selection */}
               <div>
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-4">
                   <label className="block text-sm font-medium text-monastery-800">
-                    Select Time Slots ({selectedTimes.length} selected)
+                    Select Meal Periods ({selectedMealPeriods.length} selected)
                   </label>
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={handleSelectAllAvailable}
-                      disabled={timeSlots.filter(slot => slot.available).length === 0}
+                      onClick={handleSelectAll}
+                      disabled={!mealAvailability.some(meal => meal.isAvailable)}
                       className="text-xs px-2 py-1 bg-primary-100 text-primary-700 rounded hover:bg-primary-200 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Select All Available
+                      Select All
                     </button>
                     <button
                       type="button"
                       onClick={handleClearSelection}
-                      disabled={selectedTimes.length === 0}
+                      disabled={selectedMealPeriods.length === 0}
                       className="text-xs px-2 py-1 bg-secondary-100 text-secondary-700 rounded hover:bg-secondary-200 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Clear All
                     </button>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {timeSlots.map((slot) => {
-                    const isPartiallyBooked = slot.status === 'partially_booked' || (slot.isTemporarilyReserved && !slot.isMyReservation)
-                    const isMyReservation = slot.isMyReservation || slot.status === 'my_reservation'
-                    const isSelected = selectedTimes.includes(slot.time)
-                    
+
+                {/* Meal Period Cards */}
+                <div className="space-y-3">
+                  {mealAvailability.map((meal) => {
+                    const isSelected = selectedMealPeriods.includes(meal.mealPeriod)
+
                     return (
                       <button
-                        key={slot.time}
+                        key={meal.mealPeriod}
                         type="button"
-                        disabled={!slot.available && !isSelected && !isMyReservation}
-                        onClick={() => handleTimeSlotSelect(slot.time)}
+                        disabled={!meal.isAvailable && !isSelected}
+                        onClick={() => handleMealPeriodToggle(meal.mealPeriod)}
                         className={`
-                          relative p-3 rounded-lg text-sm font-medium border transition-colors
+                          w-full text-left p-4 rounded-lg border-2 transition-all duration-200
                           ${isSelected
-                            ? 'bg-primary-500 text-white border-primary-500'
-                            : isMyReservation
-                              ? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
-                              : slot.available
-                                ? 'bg-white text-monastery-700 border-monastery-200 hover:border-primary-300 hover:bg-primary-50'
-                                : isPartiallyBooked
-                                  ? 'bg-warning-100 text-warning-800 border-warning-300'
-                                  : 'bg-secondary-100 text-secondary-400 border-secondary-200 cursor-not-allowed'
+                            ? 'border-primary-500 bg-primary-50 shadow-md'
+                            : meal.isAvailable
+                              ? `${meal.color} hover:shadow-md hover:border-primary-300`
+                              : 'border-gray-300 bg-gray-100 cursor-not-allowed opacity-50'
                           }
                         `}
                       >
-                        <div className="flex items-center justify-between">
-                          <span>{formatTime(slot.time)}</span>
-                          {isSelected && (
-                            <div className="text-xs bg-white bg-opacity-20 px-1 rounded">
-                              ✓
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-3">
+                            <span className="text-2xl">{meal.icon}</span>
+                            <div>
+                              <h3 className="font-semibold text-base text-monastery-800">
+                                {meal.mealName}
+                              </h3>
+                              <p className="text-sm text-monastery-600">
+                                {meal.timeRange}
+                              </p>
                             </div>
-                          )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="text-lg font-bold text-monastery-800">
+                              ${meal.cost}
+                            </div>
+                            {isSelected && (
+                              <div className="bg-primary-500 text-white px-2 py-1 rounded-full text-xs font-medium">
+                                Selected ✓
+                              </div>
+                            )}
+                            {!meal.isAvailable && meal.bookedBy && (
+                              <div className="bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs font-medium">
+                                Booked by {meal.bookedBy.username}
+                              </div>
+                            )}
+                            {!meal.isAvailable && !meal.bookedBy && (
+                              <div className="bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-xs font-medium">
+                                Unavailable
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        {isMyReservation && !isSelected && (
-                          <div className="text-xs text-blue-600 mt-1">
-                            My Reservation
-                          </div>
-                        )}
-                        {isPartiallyBooked && !isSelected && !isMyReservation && (
-                          <div className="text-xs text-warning-600 mt-1">
-                            Being Booked
-                          </div>
-                        )}
-                        {!slot.available && !isPartiallyBooked && (
-                          <div className="text-xs text-secondary-500 mt-1">
-                            Booked
-                          </div>
-                        )}
+                        <p className="text-sm text-monastery-600">
+                          {meal.description}
+                        </p>
                       </button>
                     )
                   })}
                 </div>
-                {timeSlots.length === 0 ? (
+
+                {mealAvailability.length === 0 ? (
                   <div className="text-center py-8">
                     <div className="text-4xl mb-4">📅</div>
                     <h3 className="text-lg font-semibold text-monastery-800 mb-2">
-                      No Time Slots Available
+                      No Meal Periods Available
                     </h3>
                     <p className="text-monastery-600">
-                      This date has no available time slots for booking.
+                      This date has no available meal periods for booking.
                     </p>
                   </div>
-                ) : !hasAvailableSlots && user && (
+                ) : !hasAvailableMeals && user && (
                   <div className="bg-error-50 border border-error-200 rounded-lg p-4 mb-4">
                     <div className="flex items-center gap-2">
                       <div className="text-error-600">🔒</div>
                       <div>
-                        <p className="text-sm font-medium text-error-800">All Time Slots Booked</p>
+                        <p className="text-sm font-medium text-error-800">All Meal Periods Booked</p>
                         <p className="text-xs text-error-600 mt-1">
-                          All available time slots for this date are currently booked.
+                          All available meal periods for this date are currently booked.
                         </p>
                       </div>
                     </div>
@@ -920,7 +765,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
               </div>
 
               {/* Recurring Booking Option - Only for authenticated users */}
-              {user && selectedTimes.length > 0 && (
+              {user && selectedMealPeriods.length > 0 && (
                 <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
                   <div className="flex items-start space-x-3">
                     <input
@@ -935,10 +780,11 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
                         📅 Book This Date Every Year
                       </label>
                       <p className="text-xs text-purple-700">
-                        Make this a yearly recurring booking for all selected time slots. These will be automatically reserved for you every year.
-                        {isRecurring && selectedTimes.length > 0 && (
+                        Make this a yearly recurring booking for all selected meal periods. These will be automatically reserved for you every year.
+                        {isRecurring && selectedMealPeriods.length > 0 && (
                           <strong className="block mt-1">
-                            This will reserve {formatDate(selectedDate!)} at {selectedTimes.map(formatTime).join(', ')} annually.
+                            This will reserve {formatDate(selectedDate!)} for {selectedMealPeriods.map(period =>
+                              period.replace('_', ' ')).join(', ')} annually.
                           </strong>
                         )}
                       </p>
@@ -948,23 +794,26 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
               )}
 
               {/* Booking Summary */}
-              {selectedTimes.length > 0 && (
+              {selectedMealPeriods.length > 0 && (
                 <div className="bg-lotus-100 rounded-lg p-4">
                   <h4 className="font-medium text-monastery-800 mb-2">
-                    Booking Summary ({selectedTimes.length} time slot{selectedTimes.length > 1 ? 's' : ''})
+                    Booking Summary ({selectedMealPeriods.length} meal period{selectedMealPeriods.length > 1 ? 's' : ''})
                   </h4>
                   <div className="space-y-1 text-sm text-monastery-700">
                     <div><strong>Date:</strong> {formatDate(selectedDate)}</div>
-                    <div><strong>Time{selectedTimes.length > 1 ? 's' : ''}:</strong>
+                    <div><strong>Meal Periods:</strong>
                       <div className="mt-1 pl-4">
-                        {selectedTimes.sort().map((time, index) => (
-                          <div key={time} className="flex items-center gap-2">
-                            <span className="text-xs bg-primary-100 text-primary-700 px-2 py-0.5 rounded">
-                              {index + 1}
-                            </span>
-                            <span>{formatTime(time)}</span>
-                          </div>
-                        ))}
+                        {selectedMealPeriods.map((periodId, index) => {
+                          const meal = mealAvailability.find(m => m.mealPeriod === periodId)
+                          return meal ? (
+                            <div key={periodId} className="flex items-center gap-2 mb-1">
+                              <span className="text-xs bg-primary-100 text-primary-700 px-2 py-0.5 rounded">
+                                {index + 1}
+                              </span>
+                              <span>{meal.icon} {meal.mealName} ({meal.timeRange}) - ${meal.cost}</span>
+                            </div>
+                          ) : null
+                        })}
                       </div>
                     </div>
                     <div><strong>Event:</strong> {isRecurring ? 'Yearly ' : ''}Dhane Offering Ceremony</div>
@@ -972,10 +821,13 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
                     {!user && formData.email && (
                       <div><strong>Email:</strong> {formData.email}</div>
                     )}
-                    <div><strong>Total Duration:</strong> ~{selectedTimes.length} hour{selectedTimes.length > 1 ? 's' : ''}</div>
+                    <div><strong>Total Cost:</strong> ${selectedMealPeriods.reduce((total, periodId) => {
+                      const meal = mealAvailability.find(m => m.mealPeriod === periodId)
+                      return total + (meal?.cost || 0)
+                    }, 0)}</div>
                     {isRecurring && (
                       <div className="text-purple-700 font-medium">
-                        <strong>📅 Recurring:</strong> All selected time slots will repeat annually on the same date
+                        <strong>📅 Recurring:</strong> All selected meal periods will repeat annually on the same date
                       </div>
                     )}
                   </div>
@@ -984,7 +836,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
 
             </form>
           )}
-          
+
           {/* Action Buttons - Sticky positioned at bottom */}
           {!showAuthPrompt && !showBookingDetails && (
             <div className="flex gap-3 pt-4 border-t border-monastery-100 mt-6 bg-white sticky bottom-0">
@@ -1001,10 +853,10 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
                 onClick={handleContinueToSignIn}
                 fullWidth
                 loading={loading}
-                disabled={loading || selectedTimes.length === 0 || timeSlots.length === 0}
+                disabled={loading || selectedMealPeriods.length === 0 || mealAvailability.length === 0}
                 className="bg-primary-500 hover:bg-primary-600"
               >
-                {loading ? `Processing ${selectedTimes.length} booking${selectedTimes.length > 1 ? 's' : ''}...` : user ? `Confirm ${selectedTimes.length} Booking${selectedTimes.length > 1 ? 's' : ''}` : 'Continue to Sign In'}
+                {loading ? `Processing ${selectedMealPeriods.length} booking${selectedMealPeriods.length > 1 ? 's' : ''}...` : user ? `Confirm ${selectedMealPeriods.length} Booking${selectedMealPeriods.length > 1 ? 's' : ''}` : 'Continue to Sign In'}
               </Button>
             </div>
           )}

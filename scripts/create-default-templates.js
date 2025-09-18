@@ -21,28 +21,28 @@ async function createDefaultTemplates() {
       })
       
       if (existingTemplates === 0) {
-        // Create weekday business hours template
+        // Create monastic weekday meal schedule template
         const weekdayTemplate = await prisma.availabilityTemplate.create({
           data: {
             tenantId: tenant.id,
-            name: 'Weekday Business Hours',
-            description: 'Monday to Friday business hours (9 AM - 5 PM)',
+            name: 'Monastic Weekday Meal Schedule',
+            description: 'Monday to Friday monastic meal times (Morning Meal, Tea, Lunch, Evening Tea)',
             daysOfWeek: [1, 2, 3, 4, 5], // Monday to Friday
-            timeSlots: ['09:00', '10:00', '11:00', '14:00', '15:00', '16:00', '17:00'],
+            timeSlots: ['06:30', '07:00', '07:30', '09:30', '10:00', '10:30', '11:30', '12:00', '15:00', '15:30', '16:00'],
             maxBookings: 1,
             isActive: true,
             priority: 10 // Higher priority
           }
         })
-        
-        // Create weekend availability template
+
+        // Create weekend monastic meal schedule template
         const weekendTemplate = await prisma.availabilityTemplate.create({
           data: {
             tenantId: tenant.id,
-            name: 'Weekend Hours',
-            description: 'Saturday and Sunday availability (10 AM - 4 PM)',
+            name: 'Monastic Weekend Meal Schedule',
+            description: 'Saturday and Sunday monastic meal times (Same schedule as weekdays)',
             daysOfWeek: [6, 7], // Saturday and Sunday
-            timeSlots: ['10:00', '11:00', '14:00', '15:00', '16:00'],
+            timeSlots: ['06:30', '07:00', '07:30', '09:30', '10:00', '10:30', '11:30', '12:00', '15:00', '15:30', '16:00'],
             maxBookings: 1,
             isActive: true,
             priority: 5 // Lower priority than weekdays

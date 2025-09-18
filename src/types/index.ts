@@ -82,7 +82,7 @@ export interface Booking {
   tenant_id: number
   user_id: number
   booking_date: Date
-  booking_time: string
+  meal_period: 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea'
   event_note?: string
   status: 'pending' | 'confirmed' | 'cancelled'
   offering_type: 'food_preparation' | 'monetary_donation'
@@ -94,9 +94,10 @@ export interface BookingAvailability {
   id: number
   tenant_id: number
   date: Date
-  time_slot: string
+  meal_period: 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea'
   is_available: boolean
-  max_bookings: number
+  is_booked: boolean
+  booked_by?: number
   created_at: Date
   updated_at: Date
 }
@@ -148,7 +149,7 @@ export interface TenantAwareInput {
 export interface BookingCreateInput extends TenantAwareInput {
   userId: number
   bookingDate: string
-  bookingTime: string
+  mealPeriod: 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea'
   eventNote?: string
   offeringType?: 'food_preparation' | 'monetary_donation'
   guestName?: string
@@ -159,9 +160,10 @@ export interface BookingCreateInput extends TenantAwareInput {
 
 export interface AvailabilityCreateInput extends TenantAwareInput {
   date: string
-  timeSlot: string
+  mealPeriod: 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea'
   isAvailable?: boolean
-  maxBookings?: number
+  isBooked?: boolean
+  bookedBy?: number
 }
 
 // Payment System Types
@@ -220,4 +222,35 @@ export interface PaymentWithReceipts extends BookingPayment {
 
 export interface BookingWithPayment extends Booking {
   bookingPayment?: PaymentWithReceipts
+}
+
+// Meal Period Types
+export type MealPeriodId = 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea'
+
+export interface MealPeriod {
+  id: MealPeriodId
+  name: string
+  icon: string
+  timeRange: string
+  description: string
+  color: string
+}
+
+export interface MealAvailability {
+  date: string
+  mealPeriod: MealPeriodId
+  mealName: string
+  icon: string
+  timeRange: string
+  description: string
+  color: string
+  cost: number
+  isAvailable: boolean
+  isBooked: boolean
+  bookedBy?: {
+    username: string
+    email: string
+  }
+  status: 'available' | 'booked' | 'disabled' | 'recurring_booked'
+  source: 'generated' | 'booking' | 'override' | 'recurring'
 }

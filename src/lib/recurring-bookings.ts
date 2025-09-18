@@ -1,5 +1,6 @@
 import prisma from './db'
 import { safeCreateDate, createTimeFromString } from '@/lib/utils/dateValidation'
+import { getMealPeriodDefaultTime } from '@/lib/utils/mealCategories'
 
 export interface RecurringBooking {
   id: number
@@ -7,8 +8,9 @@ export interface RecurringBooking {
   user_id: number
   booking_month: number
   booking_day: number
-  booking_time: string
+  meal_period: 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea'
   event_note?: string
+  offering_type: 'food_preparation' | 'monetary_donation'
   is_active: boolean
   created_at: Date
   updated_at: Date
@@ -18,8 +20,9 @@ export interface RecurringBookingCreateInput {
   tenantId: number
   userId: number
   bookingDate: string
-  bookingTime: string
+  mealPeriod: 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea'
   eventNote?: string
+  offeringType?: 'food_preparation' | 'monetary_donation'
 }
 
 export class RecurringBookingService {
@@ -35,18 +38,18 @@ export class RecurringBookingService {
         throw new Error(`Invalid booking date: ${data.bookingDate}`)
       }
 
-      // Parse the booking time
-      const bookingTime = createTimeFromString(data.bookingTime)
-      if (!bookingTime) {
-        throw new Error(`Invalid booking time: ${data.bookingTime}`)
+      // Validate meal period
+      const validMealPeriods = ['morning_meal', 'morning_tea', 'lunch_meal', 'evening_tea']
+      if (!validMealPeriods.includes(data.mealPeriod)) {
+        throw new Error(`Invalid meal period: ${data.mealPeriod}`)
       }
 
-      // Prevent booking past dates
+      // Prevent booking past dates (compare in UTC to avoid timezone issues)
       const today = new Date()
-      today.setHours(0, 0, 0, 0)
-      bookingDate.setHours(0, 0, 0, 0)
-      
-      if (bookingDate < today) {
+      const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()))
+      const bookingDateUTC = new Date(Date.UTC(bookingDate.getFullYear(), bookingDate.getMonth(), bookingDate.getDate()))
+
+      if (bookingDateUTC < todayUTC) {
         throw new Error('Cannot create recurring booking for past dates')
       }
 
@@ -57,20 +60,20 @@ export class RecurringBookingService {
       // The availability system will handle capacity limits when actual bookings are created
       // This allows multiple users to have recurring bookings for popular dates (like special holidays)
 
-      // Check if user already has a recurring booking for this date/time
+      // Check if user already has a recurring booking for this date/meal period
       const userExisting = await prisma.recurringBooking.findFirst({
         where: {
           tenantId: data.tenantId,
           userId: data.userId,
           bookingMonth,
           bookingDay,
-          bookingTime,
+          mealPeriod: data.mealPeriod,
           isActive: true
         }
       })
 
       if (userExisting) {
-        throw new Error('You already have a yearly booking for this date and time')
+        throw new Error('You already have a yearly booking for this date and meal period')
       }
 
       // Create the recurring booking
@@ -80,8 +83,9 @@ export class RecurringBookingService {
           userId: data.userId,
           bookingMonth,
           bookingDay,
-          bookingTime,
-          eventNote: data.eventNote
+          mealPeriod: data.mealPeriod,
+          eventNote: data.eventNote,
+          offeringType: data.offeringType || 'food_preparation'
         }
       })
 
@@ -94,8 +98,9 @@ export class RecurringBookingService {
         user_id: recurringBooking.userId,
         booking_month: recurringBooking.bookingMonth,
         booking_day: recurringBooking.bookingDay,
-        booking_time: recurringBooking.bookingTime.toISOString().substring(11, 19),
+        meal_period: recurringBooking.mealPeriod as 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea',
         event_note: recurringBooking.eventNote || undefined,
+        offering_type: recurringBooking.offeringType as 'food_preparation' | 'monetary_donation',
         is_active: recurringBooking.isActive,
         created_at: recurringBooking.createdAt,
         updated_at: recurringBooking.updatedAt
@@ -133,7 +138,7 @@ export class RecurringBookingService {
         orderBy: [
           { bookingMonth: 'asc' },
           { bookingDay: 'asc' },
-          { bookingTime: 'asc' }
+          { mealPeriod: 'asc' }
         ]
       })
 
@@ -143,8 +148,9 @@ export class RecurringBookingService {
         user_id: booking.userId,
         booking_month: booking.bookingMonth,
         booking_day: booking.bookingDay,
-        booking_time: booking.bookingTime.toISOString().substring(11, 19),
+        meal_period: booking.mealPeriod as 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea',
         event_note: booking.eventNote || undefined,
+        offering_type: booking.offeringType as 'food_preparation' | 'monetary_donation',
         is_active: booking.isActive,
         created_at: booking.createdAt,
         updated_at: booking.updatedAt
@@ -176,7 +182,7 @@ export class RecurringBookingService {
         orderBy: [
           { bookingMonth: 'asc' },
           { bookingDay: 'asc' },
-          { bookingTime: 'asc' }
+          { mealPeriod: 'asc' }
         ]
       })
 
@@ -186,8 +192,9 @@ export class RecurringBookingService {
         user_id: booking.userId,
         booking_month: booking.bookingMonth,
         booking_day: booking.bookingDay,
-        booking_time: booking.bookingTime.toISOString().substring(11, 19),
+        meal_period: booking.mealPeriod as 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea',
         event_note: booking.eventNote || undefined,
+        offering_type: booking.offeringType as 'food_preparation' | 'monetary_donation',
         is_active: booking.isActive,
         created_at: booking.createdAt,
         updated_at: booking.updatedAt,
@@ -250,26 +257,23 @@ export class RecurringBookingService {
   }
 
   /**
-   * Check if a date/time is blocked by recurring bookings
+   * Check if a date/meal period is blocked by recurring bookings
    */
-  static async isDateTimeBlockedByRecurring(
+  static async isDateMealPeriodBlockedByRecurring(
     tenantId: number,
     date: Date,
-    timeSlot: string
+    mealPeriod: 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea'
   ): Promise<boolean> {
     try {
       const month = date.getMonth() + 1
       const day = date.getDate()
-      
-      const timeObj = createTimeFromString(timeSlot)
-      if (!timeObj) return false
 
       const recurring = await prisma.recurringBooking.findFirst({
         where: {
           tenantId,
           bookingMonth: month,
           bookingDay: day,
-          bookingTime: timeObj,
+          mealPeriod,
           isActive: true
         }
       })
@@ -298,20 +302,24 @@ export class RecurringBookingService {
 
       for (const year of yearsToGenerate) {
         try {
-          // Calculate the target date for this year
-          const targetDate = new Date(year, recurringBooking.bookingMonth - 1, recurringBooking.bookingDay)
-          
-          // Skip if date is invalid (e.g., Feb 29 in non-leap year)
-          if (targetDate.getMonth() !== recurringBooking.bookingMonth - 1) {
+          // Calculate the target date for this year using UTC to avoid timezone issues
+          const targetDate = new Date(Date.UTC(year, recurringBooking.bookingMonth - 1, recurringBooking.bookingDay))
+
+          // Validate the date calculation (prevent timezone-related bugs)
+          if (targetDate.getUTCMonth() !== recurringBooking.bookingMonth - 1 ||
+              targetDate.getUTCDate() !== recurringBooking.bookingDay) {
+            console.error(`Date calculation error for recurring booking ${recurringBookingId}:`, {
+              expected: { month: recurringBooking.bookingMonth, day: recurringBooking.bookingDay },
+              actual: { month: targetDate.getUTCMonth() + 1, day: targetDate.getUTCDate() }
+            })
             continue
           }
 
-          // Skip if date is in the past
+          // Skip if date is in the past (compare in UTC)
           const today = new Date()
-          today.setHours(0, 0, 0, 0)
-          targetDate.setHours(0, 0, 0, 0)
-          
-          if (targetDate < today) continue
+          const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()))
+
+          if (targetDate < todayUTC) continue
 
           // Check if booking instance already exists
           const existingBooking = await prisma.booking.findFirst({
@@ -319,7 +327,7 @@ export class RecurringBookingService {
               tenantId,
               userId: recurringBooking.userId,
               bookingDate: targetDate,
-              bookingTime: recurringBooking.bookingTime,
+              mealPeriod: recurringBooking.mealPeriod,
               recurringBookingId,
               status: { not: 'cancelled' }
             }
@@ -337,10 +345,11 @@ export class RecurringBookingService {
                 connect: { id: recurringBooking.userId }
               },
               bookingDate: targetDate,
-              bookingTime: recurringBooking.bookingTime,
+              mealPeriod: recurringBooking.mealPeriod,
               eventNote: recurringBooking.eventNote || `Yearly booking - ${targetDate.toDateString()}`,
               status: 'confirmed',
               isRecurring: true,
+              offeringType: recurringBooking.offeringType, // Use stored offering type from recurring booking
               recurringBooking: recurringBookingId ? {
                 connect: { id: recurringBookingId }
               } : undefined

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import Calendar from 'react-calendar'
 import { Button, Card, CardContent, CardHeader, CardTitle, Loading } from '@/components/ui'
-import { BookingAvailability } from '@/types'
+import { MealAvailability } from '@/types'
 import { useAuth } from '@/components/AuthContext'
 import { formatDateForDatabase } from '@/lib/utils/dateValidation'
 import 'react-calendar/dist/Calendar.css'
@@ -16,19 +16,23 @@ interface MonasteryCalendarProps {
 
 interface DayAvailability {
   date: string
-  hasAvailability: boolean
-  totalSlots: number
-  availableSlots: number
+  totalMeals: number
+  availableMeals: number
+  mealStatuses: Array<{
+    mealPeriod: string
+    isAvailable: boolean
+    isBooked: boolean
+    bookedBy?: { username: string; email: string }
+  }>
 }
 
-// Default availability configuration
-const DEFAULT_WEEKDAY_SLOTS = 7
-const DEFAULT_WEEKEND_SLOTS = 5
+// Meal period configuration
+const TOTAL_MEAL_PERIODS = 4 // morning_meal, morning_tea, lunch_meal, evening_tea
 const API_LIMIT = 1000
 
 export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshKey }: MonasteryCalendarProps) {
   const { user, loading: authLoading } = useAuth()
-  const [availability, setAvailability] = useState<BookingAvailability[]>([])
+  const [availability, setAvailability] = useState<MealAvailability[]>([])
   const [loading, setLoading] = useState(true)
   const [dayAvailability, setDayAvailability] = useState<Map<string, DayAvailability>>(new Map())
   
@@ -101,33 +105,38 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
     }
   }
 
-  const processAvailabilityData = (availabilityData: BookingAvailability[]) => {
+  const processAvailabilityData = (availabilityData: MealAvailability[]) => {
     const dayMap = new Map<string, DayAvailability>()
     
-    availabilityData.forEach(slot => {
-      // Ensure we get the date string correctly regardless of format
+    // Group meal periods by date
+    availabilityData.forEach(meal => {
+      // Ensure we get the date string correctly
       let dateStr: string
-      if (slot.date instanceof Date) {
-        dateStr = formatDateForDatabase(slot.date)
-      } else if (typeof slot.date === 'string') {
-        dateStr = slot.date.split('T')[0]
+      if (typeof meal.date === 'string') {
+        dateStr = meal.date.split('T')[0]
       } else {
-        dateStr = formatDateForDatabase(new Date(slot.date))
+        dateStr = formatDateForDatabase(new Date(meal.date))
       }
-      
+
       const existing = dayMap.get(dateStr)
-      
+
+      const mealStatus = {
+        mealPeriod: meal.mealPeriod,
+        isAvailable: meal.isAvailable,
+        isBooked: meal.isBooked,
+        bookedBy: meal.bookedBy
+      }
+
       if (existing) {
-        existing.totalSlots++
-        if (slot.is_available) {
-          existing.availableSlots++
-        }
+        existing.mealStatuses.push(mealStatus)
+        existing.totalMeals = existing.mealStatuses.length
+        existing.availableMeals = existing.mealStatuses.filter(m => m.isAvailable).length
       } else {
         dayMap.set(dateStr, {
           date: dateStr,
-          hasAvailability: slot.is_available,
-          totalSlots: 1,
-          availableSlots: slot.is_available ? 1 : 0
+          totalMeals: 1,
+          availableMeals: meal.isAvailable ? 1 : 0,
+          mealStatuses: [mealStatus]
         })
       }
     })
@@ -176,99 +185,56 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
       }
     }
     
-    // Get slots for this specific date with robust date matching
-    const daySlots = availability.filter(slot => {
+    // Get meal periods for this specific date
+    const dayMeals = availability.filter(meal => {
       try {
-        // Handle different date formats more robustly
-        let slotDateStr: string
-        
-        if (!slot || !slot.date) {
+        let mealDateStr: string
+
+        if (!meal || !meal.date) {
           return false
         }
-        
-        if (slot.date instanceof Date) {
-          slotDateStr = formatDateForDatabase(slot.date)
-        } else if (typeof slot.date === 'string') {
-          // Parse string date and convert to consistent local timezone format
-          const parsedDate = new Date(slot.date)
-          if (isNaN(parsedDate.getTime())) {
-            return false
-          }
-          slotDateStr = formatDateForDatabase(parsedDate)
+
+        if (typeof meal.date === 'string') {
+          mealDateStr = meal.date.split('T')[0]
         } else {
-          // Try to parse as date
-          const parsedDate = new Date(slot.date)
-          if (isNaN(parsedDate.getTime())) {
-            return false
-          }
-          slotDateStr = formatDateForDatabase(parsedDate)
+          mealDateStr = formatDateForDatabase(new Date(meal.date))
         }
-        
-        // Ensure both strings are properly formatted
-        const normalizedSlotDate = slotDateStr.trim()
-        const normalizedDateStr = dateStr.trim()
-        
-        return normalizedSlotDate === normalizedDateStr
+
+        return mealDateStr.trim() === dateStr.trim()
       } catch (error) {
-        console.warn('Error parsing slot date:', slot.date, error)
+        console.warn('Error parsing meal date:', meal.date, error)
         return false
       }
     })
     
     
-    // If we have slot data, use detailed status analysis
-    if (daySlots.length > 0) {
-      // Count different slot types more accurately
-      const recurringBookedSlots = daySlots.filter(slot => slot.status === 'recurring_booked' || slot.source === 'recurring_blocked')
-      const fullyBookedSlots = daySlots.filter(slot => slot.status === 'fully_booked')
-      const partiallyBookedSlots = daySlots.filter(slot => slot.status === 'partially_booked' || slot.isTemporarilyReserved)
-      const availableSlots = daySlots.filter(slot => slot.is_available && !slot.isTemporarilyReserved)
-      const partiallyAvailableSlots = daySlots.filter(slot => slot.status === 'partially_available')
-      
-      // Count actual bookings for this date to determine if it's partially booked
-      const slotsWithBookings = daySlots.filter(slot => {
-        const bookingCount = slot.booking_count || 0
-        const maxBookings = slot.max_bookings || 1
-        return bookingCount > 0 && bookingCount < maxBookings
-      })
-      
-      const slotsFullyBooked = daySlots.filter(slot => {
-        const bookingCount = slot.booking_count || 0
-        const maxBookings = slot.max_bookings || 1
-        return bookingCount >= maxBookings
-      })
-      
-      
-      // Improved priority-based classification to handle mixed availability
-      if (recurringBookedSlots.length === daySlots.length) {
-        // ALL slots are blocked by recurring bookings
+    // If we have meal data, use meal-based status analysis
+    if (dayMeals.length > 0) {
+      // Count different meal statuses
+      const recurringBookedMeals = dayMeals.filter(meal => meal.status === 'recurring_booked')
+      const bookedMeals = dayMeals.filter(meal => meal.isBooked || meal.status === 'booked')
+      const availableMeals = dayMeals.filter(meal => meal.isAvailable)
+      const disabledMeals = dayMeals.filter(meal => meal.status === 'disabled')
+
+      // Simple classification based on meal availability
+      if (recurringBookedMeals.length === dayMeals.length) {
+        // ALL meals are blocked by recurring bookings
         classes.push('recurring-booked')
-      } else if (slotsFullyBooked.length === daySlots.length && recurringBookedSlots.length === 0) {
-        // All slots are fully booked (but not by recurring bookings)
+      } else if (availableMeals.length === 0) {
+        // No available meals
         classes.push('fully-booked')
-      } else if (availableSlots.length === 0) {
-        // No available slots, but it's a mix of recurring blocked + booked
-        classes.push('fully-booked')
-      } else if (availableSlots.length === daySlots.length) {
-        // All slots are available
+      } else if (availableMeals.length === dayMeals.length) {
+        // All meals are available
         classes.push('fully-available')
       } else {
-        // Mixed state: some available, some booked/blocked
-        // This includes cases where recurring bookings block some slots but others are available
+        // Mixed state: some available, some booked
         classes.push('partially-booked')
       }
     } else {
-      // No slot data found for this date - use fallback availability
-      
-      // Use default availability logic - don't assume unavailable just because no specific data exists
-      const dayOfWeek = date.getDay()
-      if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-        // Weekday - assume available
-        classes.push('fully-available')
-      } else {
-        // Weekend - assume available (same as weekday)
-        classes.push('fully-available')
-      }
+      // No meal data found for this date - assume all meals available
+      // The API generates meal availability dynamically, so if no data exists,
+      // it means the date hasn't been specifically configured yet
+      classes.push('fully-available')
     }
     
     return classes.join(' ')
@@ -288,39 +254,34 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
     if (normalizedDate < today) return null
 
     const dateStr = formatDate(normalizedDate)
-    const daySlots = availability.filter(slot => {
-      const slotDate = formatDateForDatabase(new Date(slot.date))
-      return slotDate === dateStr
+    const dayMeals = availability.filter(meal => {
+      const mealDateStr = typeof meal.date === 'string' ? meal.date.split('T')[0] : formatDateForDatabase(new Date(meal.date))
+      return mealDateStr === dateStr
     })
-    
+
     let availableCount = 0
-    let totalSlots = 0
-    
-    if (daySlots.length > 0) {
-      // Use actual slot data
-      totalSlots = daySlots.length
-      availableCount = daySlots.filter(slot => slot.is_available && !slot.isTemporarilyReserved).length
+    let totalMeals = TOTAL_MEAL_PERIODS
+
+    if (dayMeals.length > 0) {
+      // Use actual meal data
+      totalMeals = Math.max(dayMeals.length, TOTAL_MEAL_PERIODS) // At least 4 meals expected
+      availableCount = dayMeals.filter(meal => meal.isAvailable).length
     } else {
-      // Fallback to legacy dayInfo or default values
+      // Fallback: assume all meals available if no specific data
       const dayInfo = getDayAvailability(date)
       if (dayInfo) {
-        availableCount = dayInfo.availableSlots
-        totalSlots = dayInfo.totalSlots
+        availableCount = dayInfo.availableMeals
+        totalMeals = dayInfo.totalMeals
       } else {
-        // Default for future dates with no data
-        const dayOfWeek = date.getDay()
-        if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-          availableCount = totalSlots = DEFAULT_WEEKDAY_SLOTS
-        } else {
-          availableCount = totalSlots = DEFAULT_WEEKEND_SLOTS
-        }
+        // Default: all 4 meal periods available
+        availableCount = totalMeals = TOTAL_MEAL_PERIODS
       }
     }
-    
-    // Don't show badge if no slots
-    if (totalSlots === 0) return null
-    
-    const availabilityRatio = totalSlots > 0 ? availableCount / totalSlots : 0
+
+    // Don't show badge if no meals
+    if (totalMeals === 0) return null
+
+    const availabilityRatio = totalMeals > 0 ? availableCount / totalMeals : 0
     
     return (
       <div className="calendar-tile-content">

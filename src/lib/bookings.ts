@@ -3,6 +3,7 @@ import { Booking, BookingAvailability, BookingCreateInput, AvailabilityCreateInp
 import { validateDateFilters, DateFilterOptions, safeCreateDate, createTimeFromString, formatDateForDatabase } from '@/lib/utils/dateValidation'
 import { AvailabilityService } from '@/lib/availability'
 import { RecurringBookingService } from '@/lib/recurring-bookings'
+import { getMealPeriodDefaultTime } from '@/lib/utils/mealCategories'
 
 export class BookingService {
   // Get bookings for a user within a tenant
@@ -49,7 +50,7 @@ export class BookingService {
         where: whereCondition,
         orderBy: [
           { bookingDate: 'desc' },
-          { bookingTime: 'desc' }
+          { mealPeriod: 'asc' }
         ]
       })
       
@@ -58,7 +59,7 @@ export class BookingService {
         tenant_id: booking.tenantId,
         user_id: booking.userId,
         booking_date: booking.bookingDate,
-        booking_time: booking.bookingTime.toISOString().substring(11, 19),
+        meal_period: booking.mealPeriod as 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea',
         event_note: booking.eventNote || undefined,
         status: booking.status as 'pending' | 'confirmed' | 'cancelled',
         offering_type: booking.offeringType as 'food_preparation' | 'monetary_donation',
@@ -88,16 +89,16 @@ export class BookingService {
         },
         orderBy: [
           { bookingDate: 'desc' },
-          { bookingTime: 'desc' }
+          { mealPeriod: 'asc' }
         ]
       })
-      
+
       return bookings.map(booking => ({
         id: booking.id,
         tenant_id: booking.tenantId,
         user_id: booking.userId,
         booking_date: booking.bookingDate,
-        booking_time: booking.bookingTime.toISOString().substring(11, 19),
+        meal_period: booking.mealPeriod as 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea',
         event_note: booking.eventNote || undefined,
         status: booking.status as 'pending' | 'confirmed' | 'cancelled',
         offering_type: booking.offeringType as 'food_preparation' | 'monetary_donation',
@@ -121,10 +122,10 @@ export class BookingService {
         throw new Error(`Invalid booking date: ${bookingData.bookingDate}`)
       }
 
-      // Validate booking time
-      const bookingTime = createTimeFromString(bookingData.bookingTime)
-      if (!bookingTime) {
-        throw new Error(`Invalid booking time: ${bookingData.bookingTime}`)
+      // Validate meal period
+      const validMealPeriods = ['morning_meal', 'morning_tea', 'lunch_meal', 'evening_tea']
+      if (!validMealPeriods.includes(bookingData.mealPeriod)) {
+        throw new Error(`Invalid meal period: ${bookingData.mealPeriod}`)
       }
 
       // Prevent booking past dates
@@ -142,61 +143,75 @@ export class BookingService {
           tenantId: bookingData.tenantId,
           userId: bookingData.userId,
           bookingDate: bookingData.bookingDate,
-          bookingTime: bookingData.bookingTime,
+          mealPeriod: bookingData.mealPeriod,
           eventNote: bookingData.eventNote
         })
       }
-      
-      // Check availability using dynamic system
-      const dateStr = formatDateForDatabase(bookingDate)
-      const timeStr = bookingData.bookingTime
 
       // Skip availability checks if admin override is enabled
       if (!bookingData.adminOverride) {
-        // Check if date/time is blocked by recurring bookings
-        const isBlocked = await RecurringBookingService.isDateTimeBlockedByRecurring(
-          bookingData.tenantId,
-          bookingDate,
-          timeStr
-        )
+        // Check if meal period is already booked on this date
+        const existingMealBooking = await prisma.booking.findFirst({
+          where: {
+            tenantId: bookingData.tenantId,
+            bookingDate: bookingDate,
+            mealPeriod: bookingData.mealPeriod,
+            status: { in: ['pending', 'confirmed'] }
+          }
+        })
 
-        if (isBlocked) {
-          throw new Error('This time slot is reserved by a yearly booking and cannot be booked')
+        if (existingMealBooking) {
+          throw new Error(`This meal period is already booked for ${bookingDate.toLocaleDateString()}`)
         }
-        
-        const dynamicAvailability = await AvailabilityService.getDynamicAvailability(
-          bookingData.tenantId,
-          { date: dateStr, limit: 100 }
-        )
-        
-        const availableSlot = dynamicAvailability.find(slot => 
-          slot.time_slot === timeStr && slot.is_available
-        )
-        
-        if (!availableSlot) {
-          throw new Error('This time slot is not available')
+
+        // Check if date/meal period is blocked by recurring bookings
+        const recurringBooking = await prisma.recurringBooking.findFirst({
+          where: {
+            tenantId: bookingData.tenantId,
+            bookingMonth: bookingDate.getMonth() + 1,
+            bookingDay: bookingDate.getDate(),
+            mealPeriod: bookingData.mealPeriod,
+            isActive: true
+          }
+        })
+
+        if (recurringBooking) {
+          throw new Error('This meal period is reserved by a yearly booking and cannot be booked')
+        }
+
+        // Check for availability overrides
+        const override = await prisma.availabilityOverride.findFirst({
+          where: {
+            tenantId: bookingData.tenantId,
+            date: bookingDate,
+            mealPeriod: bookingData.mealPeriod,
+            overrideType: 'disable',
+            isActive: true
+          }
+        })
+
+        if (override) {
+          throw new Error(`This meal period is disabled: ${override.reason || 'No reason provided'}`)
         }
       }
 
-      // Check if user already has a booking at this time within tenant (skip for admin override or null userId)
+      // Check if user already has a booking for this meal period on this date (skip for admin override or null userId)
       if (bookingData.userId && !bookingData.adminOverride) {
         const existingBooking = await prisma.booking.findFirst({
           where: {
             tenantId: bookingData.tenantId,
             userId: bookingData.userId,
             bookingDate: bookingDate,
-            bookingTime: bookingTime,
+            mealPeriod: bookingData.mealPeriod,
             status: {
               not: 'cancelled'
             }
           }
         })
 
-
         if (existingBooking) {
           const conflictDate = existingBooking.bookingDate.toLocaleDateString()
-          const conflictTime = existingBooking.bookingTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
-          throw new Error(`You already have a booking on ${conflictDate} at ${conflictTime}. Please cancel the existing booking first or choose a different time slot. (Booking ID: ${existingBooking.id})`)
+          throw new Error(`You already have a booking for ${bookingData.mealPeriod.replace('_', ' ')} on ${conflictDate}. Please cancel the existing booking first or choose a different meal period. (Booking ID: ${existingBooking.id})`)
         }
       }
 
@@ -216,7 +231,7 @@ export class BookingService {
             connect: { id: bookingData.userId }
           },
           bookingDate: bookingDate,
-          bookingTime: bookingTime,
+          mealPeriod: bookingData.mealPeriod,
           eventNote: bookingData.eventNote,
           offeringType: (bookingData as any).offeringType || 'food_preparation',
           status: bookingData.adminOverride ? 'confirmed' : 'pending'
@@ -228,7 +243,7 @@ export class BookingService {
         user_id: booking.userId,
         tenant_id: booking.tenantId,
         booking_date: booking.bookingDate,
-        booking_time: booking.bookingTime.toISOString().substring(11, 19),
+        meal_period: booking.mealPeriod as 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea',
         event_note: booking.eventNote || undefined,
         status: booking.status as 'pending' | 'confirmed' | 'cancelled',
         offering_type: booking.offeringType as 'food_preparation' | 'monetary_donation',
@@ -257,9 +272,10 @@ export class BookingService {
         tenant_id: booking.tenantId,
         user_id: booking.userId,
         booking_date: booking.bookingDate,
-        booking_time: booking.bookingTime.toISOString().substring(11, 19),
+        meal_period: booking.mealPeriod as 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea',
         event_note: booking.eventNote || undefined,
         status: booking.status as 'pending' | 'confirmed' | 'cancelled',
+        offering_type: booking.offeringType as 'food_preparation' | 'monetary_donation',
         created_at: booking.createdAt,
         updated_at: booking.updatedAt
       }
@@ -372,11 +388,19 @@ export class BookingService {
     tenantId: number
     userId: number
     bookingDate: string
-    bookingTime: string
+    mealPeriod: 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea'
     eventNote?: string
   }): Promise<Booking | null> {
     try {
-      const recurringBooking = await RecurringBookingService.createRecurringBooking(data)
+      // Pass mealPeriod instead of bookingTime to the recurring booking service
+      const recurringBooking = await RecurringBookingService.createRecurringBooking({
+        tenantId: data.tenantId,
+        userId: data.userId,
+        bookingDate: data.bookingDate,
+        mealPeriod: data.mealPeriod,
+        eventNote: data.eventNote,
+        offeringType: (data as any).offeringType || 'food_preparation'
+      })
       
       if (!recurringBooking) {
         throw new Error('Failed to create recurring booking')
@@ -384,10 +408,9 @@ export class BookingService {
 
       // Find the generated booking instance for the requested date
       const bookingDate = safeCreateDate(data.bookingDate)
-      const bookingTime = createTimeFromString(data.bookingTime)
-      
-      if (!bookingDate || !bookingTime) {
-        throw new Error('Invalid date or time format')
+
+      if (!bookingDate) {
+        throw new Error('Invalid date format')
       }
 
       // Try to find the generated booking instance
@@ -396,24 +419,11 @@ export class BookingService {
           tenantId: data.tenantId,
           userId: data.userId,
           bookingDate,
-          bookingTime,
+          mealPeriod: data.mealPeriod,
           recurringBookingId: recurringBooking.id,
           status: { not: 'cancelled' }
         }
       })
-
-      // If not found, try with a broader time range (in case of microsecond differences)
-      if (!generatedBooking) {
-        generatedBooking = await prisma.booking.findFirst({
-          where: {
-            tenantId: data.tenantId,
-            userId: data.userId,
-            bookingDate,
-            recurringBookingId: recurringBooking.id,
-            status: { not: 'cancelled' }
-          }
-        })
-      }
 
       if (generatedBooking) {
         return {
@@ -421,9 +431,10 @@ export class BookingService {
           tenant_id: generatedBooking.tenantId,
           user_id: generatedBooking.userId,
           booking_date: generatedBooking.bookingDate,
-          booking_time: generatedBooking.bookingTime.toISOString().substring(11, 19),
+          meal_period: data.mealPeriod,
           event_note: generatedBooking.eventNote || undefined,
           status: generatedBooking.status as 'pending' | 'confirmed' | 'cancelled',
+          offering_type: generatedBooking.offeringType as 'food_preparation' | 'monetary_donation',
           created_at: generatedBooking.createdAt,
           updated_at: generatedBooking.updatedAt,
           is_recurring: true,
@@ -439,9 +450,10 @@ export class BookingService {
         tenant_id: recurringBooking.tenant_id,
         user_id: recurringBooking.user_id,
         booking_date: bookingDate,
-        booking_time: data.bookingTime,
+        meal_period: data.mealPeriod,
         event_note: recurringBooking.event_note,
         status: 'confirmed' as 'confirmed',
+        offering_type: 'food_preparation' as 'food_preparation',
         created_at: new Date(),
         updated_at: new Date(),
         is_recurring: true,

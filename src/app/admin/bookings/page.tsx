@@ -8,16 +8,23 @@ interface Booking {
   id: number
   user_id: number
   booking_date: string
-  booking_time: string
+  meal_period?: string
+  meal_display?: string
+  meal_time_range?: string
+  offering_type?: string
   event_note?: string
   status: 'pending' | 'confirmed' | 'cancelled'
+  is_recurring?: boolean
   created_at: string
   updated_at: string
   username?: string
   email?: string
+  phone_number?: string
   tenant?: {
+    id: number
     name: string
     subdomain: string
+    is_active: boolean
   }
 }
 
@@ -77,16 +84,35 @@ export default function BookingsPage() {
     return new Date(dateStr).toLocaleDateString()
   }
 
-  const formatTime = (timeStr: string) => {
-    // Handle both full datetime and time-only strings
-    if (timeStr.includes('T') || timeStr.includes(' ')) {
-      return new Date(timeStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const formatMealPeriod = (booking: Booking) => {
+    // If we have the new meal period display info, use it
+    if (booking.meal_display && booking.meal_time_range) {
+      return {
+        name: booking.meal_display,
+        time: booking.meal_time_range
+      }
     }
-    // If it's already just a time string
-    const [hours, minutes] = timeStr.split(':')
-    const hour12 = parseInt(hours) % 12 || 12
-    const ampm = parseInt(hours) >= 12 ? 'PM' : 'AM'
-    return `${hour12}:${minutes} ${ampm}`
+
+    // Fallback for bookings without meal period info
+    if (booking.meal_period) {
+      // Convert meal period ID to display name
+      const mealPeriodNames: Record<string, string> = {
+        morning_meal: 'Morning Meal',
+        morning_tea: 'Morning Tea',
+        lunch_meal: 'Lunch Meal',
+        evening_tea: 'Evening Tea'
+      }
+      return {
+        name: mealPeriodNames[booking.meal_period] || booking.meal_period,
+        time: 'Time not specified'
+      }
+    }
+
+    // Final fallback for very old bookings
+    return {
+      name: 'Meal period not specified',
+      time: ''
+    }
   }
 
   const updateBookingStatus = async (bookingId: number, newStatus: 'confirmed' | 'cancelled') => {
@@ -196,13 +222,17 @@ export default function BookingsPage() {
     },
     {
       key: 'booking_date',
-      label: 'Date & Time',
-      render: (booking: Booking) => (
-        <div>
-          <div className="font-medium text-monastery-800">{formatDate(booking.booking_date)}</div>
-          <div className="text-sm text-monastery-600">{formatTime(booking.booking_time)}</div>
-        </div>
-      ),
+      label: 'Date & Meal Period',
+      render: (booking: Booking) => {
+        const mealInfo = formatMealPeriod(booking)
+        return (
+          <div>
+            <div className="font-medium text-monastery-800">{formatDate(booking.booking_date)}</div>
+            <div className="text-sm text-monastery-600">{mealInfo.name}</div>
+            {mealInfo.time && <div className="text-xs text-monastery-500">{mealInfo.time}</div>}
+          </div>
+        )
+      },
       sortable: true,
     },
     {
@@ -220,6 +250,21 @@ export default function BookingsPage() {
         </div>
       ),
       searchable: true,
+    },
+    {
+      key: 'offering_type',
+      label: 'Type',
+      render: (booking: Booking) => (
+        <div className="text-sm">
+          <div className="text-monastery-700">
+            {booking.offering_type === 'monetary_donation' ? 'Donation' : 'Food Prep'}
+          </div>
+          {booking.is_recurring && (
+            <div className="text-xs text-blue-600 font-medium">Yearly Recurring</div>
+          )}
+        </div>
+      ),
+      sortable: true,
     },
     {
       key: 'status',

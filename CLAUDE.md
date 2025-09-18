@@ -136,8 +136,12 @@ CREATE TABLE refresh_tokens (
 
 ### Default Data
 - **Super Admin**: admin@example.com / SuperAdmin123!
-- **Availability**: 30 days of weekday slots (9 AM - 5 PM)
-- **Time Slots**: 09:00, 10:00, 11:00, 14:00, 15:00, 16:00, 17:00
+- **Availability**: 30 days of monastic meal time slots
+- **Monastic Time Slots**:
+  - Morning Meal: 06:30, 07:00, 07:30 (6:30-7:30 AM)
+  - Morning Tea: 09:30, 10:00, 10:30 (9:30-10:30 AM)
+  - Lunch Meal: 11:30, 12:00 (11:30-12:00 PM)
+  - Evening Tea: 15:00, 15:30, 16:00 (3:00-4:00 PM)
 
 ---
 
