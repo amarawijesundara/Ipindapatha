@@ -6,13 +6,48 @@ import { Button, Input, Card, CardContent, CardHeader, CardTitle } from '@/compo
 import { useAuth } from '@/components/AuthContext'
 import BookingDetailsView from '@/components/BookingDetailsView'
 import UserSelector from '@/components/UserSelector'
-import { formatDateForBooking } from '@/lib/utils/dateValidation'
-import { MealPeriodId, MealAvailability } from '@/types'
+import { formatDateForBooking, normalizeToLocalMidnight } from '@/lib/utils/dateValidation'
+import { formatCurrencyCompact } from '@/lib/utils/currency'
+import { MealPeriodId, MealAvailability, SupportedCurrency } from '@/types'
+
+// Client-side tenant context extraction utility (shared with MonasteryCalendar)
+const extractClientTenantContext = () => {
+  if (typeof window === 'undefined') return null
+
+  const hostname = window.location.hostname
+
+  // Extract subdomain from hostname
+  const parts = hostname.split('.')
+
+  // Handle localhost development URLs (e.g., niwandakimu.localhost)
+  if (parts.length === 2 && parts[1] === 'localhost') {
+    const subdomain = parts[0]
+    // Filter out reserved subdomains
+    if (['www', 'api', 'admin'].includes(subdomain)) {
+      return null
+    }
+    return subdomain
+  }
+
+  // Handle production URLs (e.g., niwandakimu.example.com)
+  if (parts.length >= 3) {
+    const subdomain = parts[0]
+    // Filter out reserved subdomains
+    if (['www', 'api', 'admin'].includes(subdomain)) {
+      return null
+    }
+    return subdomain
+  }
+
+  // No subdomain found (just "localhost" or "domain.com")
+  return null
+}
 
 interface DhaneBookingModalProps {
   selectedDate: Date | null
   onClose: () => void
   onBookingComplete: () => void
+  onAvailabilityChange?: () => void
 }
 
 interface BookingFormData {
@@ -33,7 +68,7 @@ interface User {
   role: string
 }
 
-export default function DhaneBookingModal({ selectedDate, onClose, onBookingComplete }: DhaneBookingModalProps) {
+export default function DhaneBookingModal({ selectedDate, onClose, onBookingComplete, onAvailabilityChange }: DhaneBookingModalProps) {
   const { user } = useAuth()
   const [mealAvailability, setMealAvailability] = useState<MealAvailability[]>([])
   const [selectedMealPeriods, setSelectedMealPeriods] = useState<MealPeriodId[]>([])
@@ -44,6 +79,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
   const [validationError, setValidationError] = useState<string | null>(null)
   const [showBookingDetails, setShowBookingDetails] = useState(false)
   const [mealCosts, setMealCosts] = useState<Record<string, number>>({})
+  const [currency, setCurrency] = useState<SupportedCurrency>('USD')
 
   // Form data state
   const [formData, setFormData] = useState<BookingFormData>({
@@ -63,7 +99,8 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
 
   // Calculate payment deadline (2 weeks before booking date)
   const calculatePaymentDeadline = (bookingDate: Date): Date => {
-    const deadline = new Date(bookingDate)
+    const normalizedBookingDate = normalizeToLocalMidnight(bookingDate)
+    const deadline = new Date(normalizedBookingDate)
     deadline.setDate(deadline.getDate() - 14) // 2 weeks before
     deadline.setHours(23, 59, 59, 999) // End of day
     return deadline
@@ -72,7 +109,8 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
   // Check if payment deadline has passed
   const isPaymentDeadlinePassed = (bookingDate: Date): boolean => {
     const deadline = calculatePaymentDeadline(bookingDate)
-    return deadline < new Date()
+    const today = normalizeToLocalMidnight(new Date())
+    return deadline < today
   }
 
   useEffect(() => {
@@ -80,6 +118,13 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
       fetchMealAvailability()
     }
   }, [selectedDate])
+
+  // Refresh availability data every time the modal opens
+  useEffect(() => {
+    if (selectedDate) {
+      fetchMealAvailability()
+    }
+  }, []) // Run on modal mount
 
   // Check if all meal periods are fully booked
   const hasAvailableMeals = mealAvailability.some(meal => meal.isAvailable)
@@ -116,7 +161,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
       // Store booking data with minimal info - form completion can happen after auth
       localStorage.setItem('pendingBooking', JSON.stringify({
         ...formData, // Include any partial form data
-        date: selectedDate ? formatDateForBooking(selectedDate) : '',
+        date: selectedDate ? formatDateForBooking(normalizeToLocalMidnight(selectedDate)) : '',
         mealPeriods: selectedMealPeriods
       }))
       setShowAuthPrompt(true)
@@ -133,15 +178,41 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
     if (!selectedDate) return
 
     try {
-      const dateStr = formatDateForBooking(selectedDate)
-      const response = await fetch(`/api/bookings/availability?date=${dateStr}`, {
-        credentials: 'include'
+      // Ensure we use the exact date as selected (timezone-safe)
+      const normalizedDate = normalizeToLocalMidnight(selectedDate)
+      const dateStr = formatDateForBooking(normalizedDate)
+
+      // Extract tenant context from current URL
+      const subdomain = extractClientTenantContext()
+
+      // Build headers with tenant context
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      }
+
+      // If we have a subdomain context, pass it to the API
+      if (subdomain) {
+        headers['x-tenant-subdomain'] = subdomain
+      }
+
+      // Add cache busting to ensure fresh data
+      const response = await fetch(`/api/bookings/availability?date=${dateStr}&_t=${Date.now()}`, {
+        credentials: 'include',
+        headers
       })
 
       if (response.ok) {
         const data = await response.json()
         setMealAvailability(data.availability || [])
         setMealCosts(data.mealCosts || {})
+        setCurrency(data.currency || 'USD')
+
+        // If we detect that some meal periods are already booked,
+        // trigger calendar refresh to ensure it shows updated availability
+        const hasBookedPeriods = (data.availability || []).some((meal: any) => !meal.isAvailable)
+        if (hasBookedPeriods && onAvailabilityChange) {
+          onAvailabilityChange()
+        }
       }
     } catch (error) {
       console.error('Failed to fetch meal availability:', error)
@@ -185,7 +256,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
       // Store complete form data and show auth prompt
       localStorage.setItem('pendingBooking', JSON.stringify({
         ...formData,
-        date: formatDateForBooking(selectedDate),
+        date: formatDateForBooking(normalizeToLocalMidnight(selectedDate)),
         mealPeriods: selectedMealPeriods
       }))
       setShowAuthPrompt(true)
@@ -204,10 +275,23 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
         // Determine target user and booking data based on admin status
         const targetUserId = isAdmin && selectedUserId ? selectedUserId : user?.id
 
+        // Determine tenant ID: use user's tenant if available, otherwise try to extract from subdomain
+        let tenantId = user?.tenant_id || 1
+
+        // For guest users or users without tenant context, check subdomain
+        if (!user?.tenant_id || tenantId === 1) {
+          const subdomain = extractClientTenantContext()
+          if (subdomain) {
+            // This will be handled by the API when it receives the x-tenant-subdomain header
+            // The booking endpoint will resolve tenant from the subdomain
+            // For now, we keep tenantId as the fallback but the API will override it
+          }
+        }
+
         const bookingData = {
           userId: targetUserId,
-          tenantId: user?.tenant_id || 1,
-          bookingDate: selectedDate ? formatDateForBooking(selectedDate) : '',
+          tenantId: tenantId,
+          bookingDate: selectedDate ? formatDateForBooking(normalizeToLocalMidnight(selectedDate)) : '',
           mealPeriod: mealPeriod,
           eventNote: formData.eventNote || `${isRecurring ? 'Yearly ' : ''}Dhane offering ceremony - ${
             isAdmin && selectedTargetUser ? selectedTargetUser.username :
@@ -225,9 +309,20 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
         // Use admin endpoint if user is admin
         const endpoint = isAdmin ? '/api/admin/bookings' : '/api/bookings'
 
+        // Build headers with tenant context
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json'
+        }
+
+        // If we have a subdomain context, pass it to the API
+        const subdomain = extractClientTenantContext()
+        if (subdomain) {
+          headers['x-tenant-subdomain'] = subdomain
+        }
+
         const response = await fetch(endpoint, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           credentials: 'include',
           body: JSON.stringify(bookingData),
         })
@@ -248,11 +343,22 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
       const successes = results.filter(result => result.status === 'fulfilled').length
 
       if (failures.length > 0 && successes === 0) {
-        // All bookings failed
-        setValidationError(`Failed to create any bookings: ${failures[0].reason.message}`)
+        // All bookings failed - provide more specific error message
+        const errorMessage = failures[0].reason.message || 'Failed to create bookings. Please try again.'
+
+        if (errorMessage.includes('already booked')) {
+          setValidationError('The selected meal period(s) are no longer available. Another user may have booked them. Please select different meal periods or dates.')
+        } else {
+          setValidationError(`Failed to create any bookings: ${errorMessage}`)
+        }
       } else if (failures.length > 0) {
         // Some bookings failed
-        setValidationError(`Created ${successes} bookings successfully, but ${failures.length} failed. Please check your bookings and try again for the failed meal periods.`)
+        const hasConflictErrors = failures.some(f => f.reason.message?.includes('already booked'))
+        if (hasConflictErrors) {
+          setValidationError(`${successes} booking(s) created successfully. Some meal periods were no longer available. Please check your bookings and book remaining periods separately.`)
+        } else {
+          setValidationError(`Created ${successes} bookings successfully, but ${failures.length} failed. Please check your bookings and try again for the failed meal periods.`)
+        }
         // Still close modal on partial success
         setTimeout(() => {
           onBookingComplete()
@@ -285,7 +391,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
     // Store current form data
     localStorage.setItem('pendingBooking', JSON.stringify({
       ...formData,
-      date: selectedDate ? formatDateForBooking(selectedDate) : '',
+      date: selectedDate ? formatDateForBooking(normalizeToLocalMidnight(selectedDate)) : '',
       mealPeriods: selectedMealPeriods
     }))
 
@@ -618,17 +724,17 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
                           return meal ? (
                             <div key={periodId} className="flex justify-between">
                               <span className="text-primary-700">{meal.mealName}:</span>
-                              <span className="font-medium text-primary-800">${meal.cost}</span>
+                              <span className="font-medium text-primary-800">{formatCurrencyCompact(meal.cost, currency)}</span>
                             </div>
                           ) : null
                         })}
                         <div className="border-t border-primary-200 pt-1 mt-2 flex justify-between font-semibold">
                           <span className="text-primary-800">Total:</span>
                           <span className="text-primary-800">
-                            ${selectedMealPeriods.reduce((total, periodId) => {
+                            {formatCurrencyCompact(selectedMealPeriods.reduce((total, periodId) => {
                               const meal = mealAvailability.find(m => m.mealPeriod === periodId)
                               return total + (meal?.cost || 0)
-                            }, 0)}
+                            }, 0), currency)}
                           </span>
                         </div>
                       </div>
@@ -698,7 +804,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
                           </div>
                           <div className="flex items-center gap-2">
                             <div className="text-lg font-bold text-monastery-800">
-                              ${meal.cost}
+                              {formatCurrencyCompact(meal.cost, currency)}
                             </div>
                             {isSelected && (
                               <div className="bg-primary-500 text-white px-2 py-1 rounded-full text-xs font-medium">
@@ -810,7 +916,7 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
                               <span className="text-xs bg-primary-100 text-primary-700 px-2 py-0.5 rounded">
                                 {index + 1}
                               </span>
-                              <span>{meal.icon} {meal.mealName} ({meal.timeRange}) - ${meal.cost}</span>
+                              <span>{meal.icon} {meal.mealName} ({meal.timeRange}) - {formatCurrencyCompact(meal.cost, currency)}</span>
                             </div>
                           ) : null
                         })}
@@ -821,10 +927,10 @@ export default function DhaneBookingModal({ selectedDate, onClose, onBookingComp
                     {!user && formData.email && (
                       <div><strong>Email:</strong> {formData.email}</div>
                     )}
-                    <div><strong>Total Cost:</strong> ${selectedMealPeriods.reduce((total, periodId) => {
+                    <div><strong>Total Cost:</strong> {formatCurrencyCompact(selectedMealPeriods.reduce((total, periodId) => {
                       const meal = mealAvailability.find(m => m.mealPeriod === periodId)
                       return total + (meal?.cost || 0)
-                    }, 0)}</div>
+                    }, 0), currency)}</div>
                     {isRecurring && (
                       <div className="text-purple-700 font-medium">
                         <strong>📅 Recurring:</strong> All selected meal periods will repeat annually on the same date

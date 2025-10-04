@@ -6,9 +6,13 @@ interface Booking {
   id: number
   user_id: number
   booking_date: string
-  booking_time: string
+  meal_period?: string
+  meal_display?: string
+  meal_time_range?: string
+  offering_type?: string
   event_note?: string
   status: 'pending' | 'confirmed' | 'cancelled'
+  is_recurring?: boolean
   created_at: string
   updated_at: string
   username?: string
@@ -40,18 +44,35 @@ export default function BookingDetailModal({ isOpen, onClose, booking }: Booking
     })
   }
 
-  const formatTime = (timeStr: string) => {
-    if (timeStr.includes('T') || timeStr.includes(' ')) {
-      return new Date(timeStr).toLocaleTimeString([], { 
-        hour: '2-digit', 
-        minute: '2-digit',
-        hour12: true
-      })
+  const formatMealPeriod = (booking: Booking) => {
+    // If we have the new meal period display info, use it
+    if (booking.meal_display && booking.meal_time_range) {
+      return {
+        name: booking.meal_display,
+        time: booking.meal_time_range
+      }
     }
-    const [hours, minutes] = timeStr.split(':')
-    const hour12 = parseInt(hours) % 12 || 12
-    const ampm = parseInt(hours) >= 12 ? 'PM' : 'AM'
-    return `${hour12}:${minutes} ${ampm}`
+
+    // Fallback for bookings without meal period info
+    if (booking.meal_period) {
+      // Convert meal period ID to display name
+      const mealPeriodNames: Record<string, string> = {
+        morning_meal: 'Morning Meal',
+        morning_tea: 'Morning Tea',
+        lunch_meal: 'Lunch Meal',
+        evening_tea: 'Evening Tea'
+      }
+      return {
+        name: mealPeriodNames[booking.meal_period] || booking.meal_period,
+        time: 'Time not specified'
+      }
+    }
+
+    // Final fallback for very old bookings
+    return {
+      name: 'Meal period not specified',
+      time: ''
+    }
   }
 
   const formatDateTime = (dateTimeStr: string) => {
@@ -63,6 +84,14 @@ export default function BookingDetailModal({ isOpen, onClose, booking }: Booking
       minute: '2-digit',
       hour12: true
     })
+  }
+
+  const getOfferingTypeIcon = (offeringType?: string) => {
+    return offeringType === 'monetary_donation' ? '💝' : '🍽️'
+  }
+
+  const getOfferingTypeLabel = (offeringType?: string) => {
+    return offeringType === 'monetary_donation' ? 'Monetary Donation' : 'Food Preparation'
   }
 
   const getStatusColor = (status: string) => {
@@ -111,8 +140,23 @@ export default function BookingDetailModal({ isOpen, onClose, booking }: Booking
                   <div className="text-sm font-medium text-primary-900">{formatDate(booking.booking_date)}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-primary-600 uppercase tracking-wide">Time</div>
-                  <div className="text-sm font-medium text-primary-900">{formatTime(booking.booking_time)}</div>
+                  <div className="text-xs text-primary-600 uppercase tracking-wide">Meal Period</div>
+                  <div className="text-sm font-medium text-primary-900">{formatMealPeriod(booking).name}</div>
+                  {formatMealPeriod(booking).time && (
+                    <div className="text-xs text-primary-600">{formatMealPeriod(booking).time}</div>
+                  )}
+                </div>
+                <div>
+                  <div className="text-xs text-primary-600 uppercase tracking-wide">Offering Type</div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-lg">{getOfferingTypeIcon(booking.offering_type)}</span>
+                    <span className="text-sm font-medium text-primary-900">{getOfferingTypeLabel(booking.offering_type)}</span>
+                    {booking.is_recurring && (
+                      <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded-full font-medium">
+                        Yearly Recurring
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <div className="text-xs text-primary-600 uppercase tracking-wide">Event Details</div>

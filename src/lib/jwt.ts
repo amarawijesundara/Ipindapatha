@@ -50,19 +50,25 @@ export const generateToken = async (payload: {
 }
 
 export const verifyToken = async (token?: string): Promise<JWTPayload | null> => {
-  if (!token) return null
-  
+  if (!token) {
+    console.log('🔐 JWT: No token provided for verification')
+    return null
+  }
+
+  console.log('🔐 JWT: Verifying token (length:', token.length, ')')
+
   try {
     const { payload } = await jwtVerify(token, secret)
+    console.log('🔐 JWT: Token verification successful for user:', (payload as any).username)
     return payload as JWTPayload
-  } catch (error) {
+  } catch (error: any) {
     // More specific error logging for debugging
     if (error.code === 'ERR_JWT_EXPIRED') {
-      console.log('JWT token expired at:', new Date((error.payload?.exp || 0) * 1000).toISOString())
+      console.log('❌ JWT: Token expired at:', new Date((error.payload?.exp || 0) * 1000).toISOString())
     } else if (error.code === 'ERR_JWT_INVALID') {
-      console.log('JWT token invalid:', error.message)
+      console.log('❌ JWT: Token invalid:', error.message)
     } else {
-      console.error('JWT verification error:', error)
+      console.error('❌ JWT: Verification error:', error)
     }
     return null
   }

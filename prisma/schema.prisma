@@ -73,6 +73,8 @@ model TenantSettings {
   notifications    Json?   @map("notifications")
   features         Json?   @map("features")
   mealCosts        Json?   @map("meal_costs") // Stores meal period costs: {"morning_meal": 75, "morning_tea": 25, "lunch_meal": 100, "evening_tea": 30}
+  mealPeriods      Json?   @map("meal_periods") // Stores tenant-specific meal period configurations
+  currency         String? @default("USD") @db.VarChar(3) // Supported currencies: USD, LKR
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamp(6)
   updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
 

@@ -1,20 +1,30 @@
 import prisma from './db'
 import { Booking, BookingAvailability, BookingCreateInput, AvailabilityCreateInput } from '@/types'
-import { validateDateFilters, DateFilterOptions, safeCreateDate, createTimeFromString, formatDateForDatabase } from '@/lib/utils/dateValidation'
+import { validateDateFilters, DateFilterOptions, safeCreateDate, createTimeFromString, formatDateForDatabase, createSafeDateRange, areSameDay, normalizeToLocalMidnight } from '@/lib/utils/dateValidation'
 import { AvailabilityService } from '@/lib/availability'
 import { RecurringBookingService } from '@/lib/recurring-bookings'
 import { getMealPeriodDefaultTime } from '@/lib/utils/mealCategories'
 
 export class BookingService {
-  // Get bookings for a user within a tenant
-  static async getUserBookings(userId: number, tenantId?: number, filters?: { 
-    status?: string 
+  // Get bookings for a user within a tenant (includes both regular and recurring bookings)
+  static async getUserBookings(userId: number, tenantId?: number, filters?: {
+    status?: string
     startDate?: string
     endDate?: string
-  }): Promise<Booking[]> {
+  }, userRole?: string): Promise<Booking[]> {
     try {
-      const whereCondition: any = { 
-        userId: userId
+      console.log(`[DEBUG] getUserBookings called with userId: ${userId}, tenantId: ${tenantId}, role: ${userRole}`)
+
+      const whereCondition: any = {}
+
+      // Role-based filtering: admins see all tenant bookings, regular users see only their own
+      if (userRole === 'tenant_admin' || userRole === 'super_admin') {
+        // Admins see all bookings in their tenant
+        console.log(`[DEBUG] Admin user - showing all tenant bookings`)
+      } else {
+        // Regular users see only their own bookings
+        whereCondition.userId = userId
+        console.log(`[DEBUG] Regular user - showing personal bookings only`)
       }
 
       // Add tenant filtering if provided
@@ -22,7 +32,7 @@ export class BookingService {
         whereCondition.tenantId = tenantId
       }
 
-      // Add status filtering if provided
+      // Add status filtering if provided for regular bookings
       if (filters?.status) {
         whereCondition.status = filters.status
       }
@@ -46,26 +56,152 @@ export class BookingService {
         }
       }
 
-      const bookings = await prisma.booking.findMany({
+      // Fetch regular bookings
+      console.log(`[DEBUG] Regular booking query:`, JSON.stringify(whereCondition, null, 2))
+      const regularBookings = await prisma.booking.findMany({
         where: whereCondition,
         orderBy: [
           { bookingDate: 'desc' },
           { mealPeriod: 'asc' }
         ]
       })
-      
-      return bookings.map(booking => ({
-        id: booking.id,
-        tenant_id: booking.tenantId,
-        user_id: booking.userId,
-        booking_date: booking.bookingDate,
-        meal_period: booking.mealPeriod as 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea',
-        event_note: booking.eventNote || undefined,
-        status: booking.status as 'pending' | 'confirmed' | 'cancelled',
-        offering_type: booking.offeringType as 'food_preparation' | 'monetary_donation',
-        created_at: booking.createdAt,
-        updated_at: booking.updatedAt
-      }))
+      console.log(`[DEBUG] Found ${regularBookings.length} regular bookings`)
+
+      // Log each booking's key details
+      regularBookings.forEach((booking, index) => {
+        console.log(`[DEBUG] Regular booking ${index + 1}:`, {
+          id: booking.id,
+          userId: booking.userId,
+          tenantId: booking.tenantId,
+          bookingDate: booking.bookingDate,
+          mealPeriod: booking.mealPeriod,
+          status: booking.status
+        })
+      })
+
+      // Build where condition for recurring bookings (similar logic but different table)
+      const recurringWhere: any = {
+        isActive: true
+      }
+
+      // Apply same role-based filtering for recurring bookings
+      if (userRole === 'tenant_admin' || userRole === 'super_admin') {
+        // Admins see all recurring bookings in their tenant
+        console.log(`[DEBUG] Admin user - showing all tenant recurring bookings`)
+      } else {
+        // Regular users see only their own recurring bookings
+        recurringWhere.userId = userId
+        console.log(`[DEBUG] Regular user - showing personal recurring bookings only`)
+      }
+
+      // Add tenant filtering for recurring bookings
+      if (tenantId !== undefined) {
+        recurringWhere.tenantId = tenantId
+      }
+
+      // For recurring bookings, we don't filter by status as they're always active
+      // Note: Skipping complex date filtering for recurring bookings for now
+      // Since My Account typically shows all user bookings without date filters
+      // This can be enhanced later if needed
+
+      // Fetch recurring bookings
+      console.log(`[DEBUG] Recurring booking query:`, JSON.stringify(recurringWhere, null, 2))
+      const recurringBookings = await prisma.recurringBooking.findMany({
+        where: recurringWhere,
+        orderBy: [
+          { createdAt: 'desc' },
+          { bookingMonth: 'desc' },
+          { bookingDay: 'desc' }
+        ]
+      })
+      console.log(`[DEBUG] Found ${recurringBookings.length} recurring bookings`)
+
+      // Log each recurring booking's key details
+      recurringBookings.forEach((booking, index) => {
+        console.log(`[DEBUG] Recurring booking ${index + 1}:`, {
+          id: booking.id,
+          userId: booking.userId,
+          tenantId: booking.tenantId,
+          bookingMonth: booking.bookingMonth,
+          bookingDay: booking.bookingDay,
+          mealPeriod: booking.mealPeriod,
+          isActive: booking.isActive
+        })
+      })
+
+      // Convert regular bookings to standard format
+      const formattedRegularBookings = regularBookings.map(booking => {
+        // Use PostgreSQL local date interpretation to match the availability API
+        // This ensures both APIs show the same date for the same booking
+        const localDateStr = booking.bookingDate.toLocaleDateString('en-CA') // YYYY-MM-DD format
+        const displayDate = new Date(localDateStr + 'T00:00:00.000Z')
+
+        console.log(`[USER BOOKINGS DEBUG] Regular booking ${booking.id}:`)
+        console.log(`  Database Date: ${booking.bookingDate.toISOString()}`)
+        console.log(`  Local Date String: ${localDateStr}`)
+        console.log(`  Display Date: ${displayDate.toISOString()}`)
+
+        return {
+          id: booking.id,
+          tenant_id: booking.tenantId,
+          user_id: booking.userId,
+          booking_date: displayDate,
+          meal_period: booking.mealPeriod as 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea',
+          event_note: booking.eventNote || undefined,
+          status: booking.status as 'pending' | 'confirmed' | 'cancelled',
+          offering_type: booking.offeringType as 'food_preparation' | 'monetary_donation',
+          created_at: booking.createdAt,
+          updated_at: booking.updatedAt,
+          is_recurring: false,
+          booking_type: 'regular' as const
+        }
+      })
+
+      // Convert recurring bookings to standard format
+      const formattedRecurringBookings = recurringBookings.map(booking => {
+        // Generate synthetic booking date using current year + bookingMonth + bookingDay as UTC
+        const currentYear = new Date().getFullYear()
+        const month = booking.bookingMonth.toString().padStart(2, '0')
+        const day = booking.bookingDay.toString().padStart(2, '0')
+        const dateStr = `${currentYear}-${month}-${day}`
+        const utcDate = new Date(dateStr + 'T00:00:00.000Z')
+
+        return {
+          id: `recurring-${booking.id}`,
+          tenant_id: booking.tenantId,
+          user_id: booking.userId,
+          booking_date: utcDate,
+          meal_period: booking.mealPeriod as 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea',
+          event_note: booking.eventNote || undefined,
+          status: 'recurring' as const,
+          offering_type: booking.offeringType as 'food_preparation' | 'monetary_donation',
+          created_at: booking.createdAt,
+          updated_at: booking.updatedAt,
+          is_recurring: true,
+          booking_type: 'recurring' as const,
+          recurring_pattern: `Every ${booking.bookingMonth}/${booking.bookingDay}`
+        }
+      })
+
+      // Combine and sort all bookings by creation date (most recent first)
+      const allBookings = [...formattedRegularBookings, ...formattedRecurringBookings]
+      allBookings.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+
+      console.log(`[DEBUG] Final result: ${allBookings.length} total bookings (${formattedRegularBookings.length} regular + ${formattedRecurringBookings.length} recurring)`)
+
+      // Log summary of what we're returning
+      allBookings.forEach((booking, index) => {
+        console.log(`[DEBUG] Final booking ${index + 1}:`, {
+          id: booking.id,
+          booking_date: booking.booking_date,
+          meal_period: booking.meal_period,
+          status: booking.status,
+          is_recurring: booking.is_recurring,
+          booking_type: booking.booking_type
+        })
+      })
+
+      return allBookings
     } catch (error) {
       console.error('Error getting user bookings:', error)
       return []
@@ -128,12 +264,11 @@ export class BookingService {
         throw new Error(`Invalid meal period: ${bookingData.mealPeriod}`)
       }
 
-      // Prevent booking past dates
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-      bookingDate.setHours(0, 0, 0, 0)
-      
-      if (bookingDate < today) {
+      // Prevent booking past dates using timezone-safe comparison
+      const today = normalizeToLocalMidnight(new Date())
+      const normalizedBookingDate = normalizeToLocalMidnight(bookingDate)
+
+      if (normalizedBookingDate < today) {
         throw new Error('Cannot book past dates')
       }
 
@@ -144,24 +279,66 @@ export class BookingService {
           userId: bookingData.userId,
           bookingDate: bookingData.bookingDate,
           mealPeriod: bookingData.mealPeriod,
-          eventNote: bookingData.eventNote
+          eventNote: bookingData.eventNote,
+          offeringType: (bookingData as any).offeringType || 'food_preparation'
         })
       }
 
       // Skip availability checks if admin override is enabled
       if (!bookingData.adminOverride) {
-        // Check if meal period is already booked on this date
+        // FIRST: Check if user already has a booking for this meal period on this date
+        if (bookingData.userId) {
+          // Use timezone-safe date range
+          const { dayStart, dayEnd } = createSafeDateRange(bookingDate)
+
+          const existingUserBooking = await prisma.booking.findFirst({
+            where: {
+              tenantId: bookingData.tenantId,
+              userId: bookingData.userId,
+              bookingDate: {
+                gte: dayStart,
+                lte: dayEnd
+              },
+              mealPeriod: bookingData.mealPeriod,
+              status: {
+                not: 'cancelled'
+              }
+            }
+          })
+
+          if (existingUserBooking) {
+            const conflictDate = existingUserBooking.bookingDate.toLocaleDateString()
+            throw new Error(`You already have a booking for ${bookingData.mealPeriod.replace('_', ' ')} on ${conflictDate}. Please cancel the existing booking first or choose a different meal period. (Booking ID: ${existingUserBooking.id})`)
+          }
+        }
+
+        // SECOND: Check if meal period is already booked by another user on this date
+        // Use timezone-safe date range
+        const { dayStart, dayEnd } = createSafeDateRange(bookingDate)
+
         const existingMealBooking = await prisma.booking.findFirst({
           where: {
             tenantId: bookingData.tenantId,
-            bookingDate: bookingDate,
+            bookingDate: {
+              gte: dayStart,
+              lte: dayEnd
+            },
             mealPeriod: bookingData.mealPeriod,
-            status: { in: ['pending', 'confirmed'] }
+            status: { in: ['pending', 'confirmed'] },
+            userId: { not: bookingData.userId } // Exclude current user since we already checked above
+          },
+          include: {
+            user: {
+              select: {
+                username: true,
+                email: true
+              }
+            }
           }
         })
 
         if (existingMealBooking) {
-          throw new Error(`This meal period is already booked for ${bookingDate.toLocaleDateString()}`)
+          throw new Error(`This meal period is already booked for ${bookingDate.toLocaleDateString()} by ${existingMealBooking.user.username} (${existingMealBooking.user.email}). Status: ${existingMealBooking.status}. Please choose a different meal period or date.`)
         }
 
         // Check if date/meal period is blocked by recurring bookings
@@ -195,25 +372,6 @@ export class BookingService {
         }
       }
 
-      // Check if user already has a booking for this meal period on this date (skip for admin override or null userId)
-      if (bookingData.userId && !bookingData.adminOverride) {
-        const existingBooking = await prisma.booking.findFirst({
-          where: {
-            tenantId: bookingData.tenantId,
-            userId: bookingData.userId,
-            bookingDate: bookingDate,
-            mealPeriod: bookingData.mealPeriod,
-            status: {
-              not: 'cancelled'
-            }
-          }
-        })
-
-        if (existingBooking) {
-          const conflictDate = existingBooking.bookingDate.toLocaleDateString()
-          throw new Error(`You already have a booking for ${bookingData.mealPeriod.replace('_', ' ')} on ${conflictDate}. Please cancel the existing booking first or choose a different meal period. (Booking ID: ${existingBooking.id})`)
-        }
-      }
 
       // For admin bookings without userId, we need to provide a userId since it's required in schema
       // We'll require the admin to provide userId for now
@@ -390,6 +548,7 @@ export class BookingService {
     bookingDate: string
     mealPeriod: 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea'
     eventNote?: string
+    offeringType?: 'food_preparation' | 'monetary_donation'
   }): Promise<Booking | null> {
     try {
       // Pass mealPeriod instead of bookingTime to the recurring booking service
@@ -399,7 +558,7 @@ export class BookingService {
         bookingDate: data.bookingDate,
         mealPeriod: data.mealPeriod,
         eventNote: data.eventNote,
-        offeringType: (data as any).offeringType || 'food_preparation'
+        offeringType: data.offeringType || 'food_preparation'
       })
       
       if (!recurringBooking) {

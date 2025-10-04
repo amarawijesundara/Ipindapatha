@@ -20,8 +20,14 @@ export default function Login() {
   
   // Redirect authenticated users away from login page
   useEffect(() => {
+    console.log('🔗 Login Page: Auth state changed', { user: user?.username, loading })
+    // Wait for auth to complete and then check if user is authenticated
     if (!loading && user) {
-      router.push('/my-account')
+      console.log('🔗 Login Page: User authenticated, redirecting to my-account')
+      const timer = setTimeout(() => {
+        router.push('/my-account')
+      }, 100)
+      return () => clearTimeout(timer)
     }
   }, [user, loading, router])
   
@@ -51,21 +57,26 @@ export default function Login() {
     setIsLoading(true)
 
     try {
+      console.log('🔗 Login Page: Attempting login for:', formData.identifier)
       await login(formData.identifier, formData.password)
-      
+
+      console.log('🔗 Login Page: Login successful, checking for redirect')
+
       // Small delay to ensure auth state is fully updated before navigation
-      await new Promise(resolve => setTimeout(resolve, 100))
-      
+      await new Promise(resolve => setTimeout(resolve, 200))
+
       // If there's a pending booking, redirect to home with the date selected
       if (pendingBooking) {
         const redirectUrl = searchParams.get('redirect') || '/'
+        console.log('🔗 Login Page: Redirecting to pending booking URL:', redirectUrl)
         router.push(redirectUrl)
         // The home page will handle the pending booking completion
       } else {
+        console.log('🔗 Login Page: Redirecting to my-account')
         router.push('/my-account')
       }
     } catch (error) {
-      console.error('Login failed:', error)
+      console.error('🔗 Login Page: Login failed:', error)
       // Don't navigate on login failure
       setIsLoading(false)
     }

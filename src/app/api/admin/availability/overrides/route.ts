@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
       overrides: overrides.map(override => ({
         id: override.id,
         tenantId: override.tenantId,
-        date: override.date.toISOString().split('T')[0],
+        date: override.date.toLocaleDateString('en-CA'), // YYYY-MM-DD format, consistent with PostgreSQL local date
         timeSlot: override.timeSlot,
         overrideType: override.overrideType,
         maxBookings: override.maxBookings,

@@ -23,22 +23,36 @@ export function isValidDateString(dateString: string | null | undefined): boolea
 
 /**
  * Safely creates a Date object from a string, returns null if invalid
- * Prefers timezone-safe parsing for booking dates
+ * Ensures timezone-safe parsing for booking dates
  */
 export function safeCreateDate(dateString: string | null | undefined): Date | null {
   if (!isValidDateString(dateString)) {
     return null
   }
-  
-  // Try timezone-safe parsing first for YYYY-MM-DD format
+
+  // Always use timezone-safe parsing for YYYY-MM-DD format first
   const parsedDate = parseBookingDate(dateString!)
   if (parsedDate) {
     return parsedDate
   }
-  
-  // Fallback to regular Date parsing for other formats
-  const date = new Date(dateString!)
-  return isNaN(date.getTime()) ? null : date
+
+  // For other formats, try to create in local timezone if possible
+  try {
+    // Check if it's an ISO date string that might cause timezone issues
+    if (dateString!.includes('T') || dateString!.includes('Z')) {
+      // Convert to local timezone equivalent
+      const utcDate = new Date(dateString!)
+      if (!isNaN(utcDate.getTime())) {
+        return new Date(utcDate.getFullYear(), utcDate.getMonth(), utcDate.getDate())
+      }
+    }
+
+    // Fallback to regular Date parsing
+    const date = new Date(dateString!)
+    return isNaN(date.getTime()) ? null : date
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -191,4 +205,32 @@ export function createTimeFromString(timeString: string): Date | null {
 
   // Create date with base date of 1970-01-01 (epoch) for time-only storage
   return new Date(`1970-01-01T${hours.padStart(2, '0')}:${minutes}:${seconds.padStart(2, '0')}`)
+}
+
+/**
+ * Creates a safe date range for a given date that accounts for timezone consistency
+ * Returns start and end dates that represent the full day in local timezone
+ */
+export function createSafeDateRange(date: Date): { dayStart: Date; dayEnd: Date } {
+  const dayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0)
+  const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999)
+
+  return { dayStart, dayEnd }
+}
+
+/**
+ * Compares two dates for equality at the day level, ignoring time components
+ * Returns true if both dates represent the same calendar day
+ */
+export function areSameDay(date1: Date, date2: Date): boolean {
+  return date1.getFullYear() === date2.getFullYear() &&
+         date1.getMonth() === date2.getMonth() &&
+         date1.getDate() === date2.getDate()
+}
+
+/**
+ * Normalizes a date to midnight local time to ensure consistent day-level comparisons
+ */
+export function normalizeToLocalMidnight(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0)
 }

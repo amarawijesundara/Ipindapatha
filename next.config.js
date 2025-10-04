@@ -7,6 +7,14 @@ const nextConfig = {
     JWT_SECRET: process.env.JWT_SECRET,
     JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN,
   },
+  // Allow subdomain origins in development
+  ...(process.env.NODE_ENV === 'development' && {
+    allowedDevOrigins: [
+      'niwandakimu.localhost:3000',
+      'localhost:3000',
+      '*.localhost:3000'
+    ]
+  }),
   // Support for Sinhala fonts and Unicode
   webpack: (config, { isServer }) => {
     config.resolve.fallback = {

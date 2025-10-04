@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyToken, isSuperAdmin } from '@/lib/jwt'
+import { UserService } from '@/lib/auth'
 import prisma from '@/lib/db'
 
 // Get all users across all tenants (Admin only)
@@ -222,6 +223,138 @@ export async function PATCH(request: NextRequest) {
     console.error('Admin user update error:', error)
     return NextResponse.json(
       { error: 'Internal server error', message: 'Failed to update user' },
+      { status: 500 }
+    )
+  }
+}
+
+// Create new user (Super Admin only)
+export async function POST(request: NextRequest) {
+  try {
+    // Verify super admin authentication
+    const authHeader = request.headers.get('authorization')
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return NextResponse.json(
+        { error: 'Authentication required', message: 'No valid authorization header' },
+        { status: 401 }
+      )
+    }
+
+    const token = authHeader.substring(7)
+    const isSuper = await isSuperAdmin(token)
+    if (!isSuper) {
+      return NextResponse.json(
+        { error: 'Access denied', message: 'Super admin access required' },
+        { status: 403 }
+      )
+    }
+
+    const body = await request.json()
+    const { username, email, password, role = 'user', tenantId, phoneNumber } = body
+
+    // Validate required fields
+    if (!username || !email || !password) {
+      return NextResponse.json(
+        { error: 'Validation failed', message: 'Username, email, and password are required' },
+        { status: 400 }
+      )
+    }
+
+    if (password.length < 6) {
+      return NextResponse.json(
+        { error: 'Validation failed', message: 'Password must be at least 6 characters long' },
+        { status: 400 }
+      )
+    }
+
+    // Validate role
+    const allowedRoles = ['user', 'tenant_manager', 'tenant_admin', 'super_admin']
+    if (!allowedRoles.includes(role)) {
+      return NextResponse.json(
+        { error: 'Invalid role', message: 'Invalid role specified' },
+        { status: 400 }
+      )
+    }
+
+    // Validate tenant if specified
+    let tenant = null
+    if (tenantId) {
+      tenant = await prisma.tenant.findUnique({
+        where: { id: parseInt(tenantId) }
+      })
+      if (!tenant) {
+        return NextResponse.json(
+          { error: 'Invalid tenant', message: 'Specified tenant does not exist' },
+          { status: 400 }
+        )
+      }
+    }
+
+    // Check if user already exists (globally or in specific tenant)
+    const existingUser = tenantId
+      ? await UserService.findByEmailOrUsername(email, parseInt(tenantId))
+      : await UserService.findByEmailOrUsername(email)
+
+    if (existingUser) {
+      const tenantName = tenant ? tenant.name : 'the system'
+      return NextResponse.json(
+        { error: 'User already exists', message: `A user with this email already exists in ${tenantName}` },
+        { status: 409 }
+      )
+    }
+
+    // Create the user
+    const newUser = await UserService.create({
+      username,
+      email,
+      password,
+      role,
+      tenant_id: tenantId ? parseInt(tenantId) : undefined,
+      phone_number: phoneNumber
+    })
+
+    if (!newUser) {
+      return NextResponse.json(
+        { error: 'Creation failed', message: 'Failed to create user account' },
+        { status: 500 }
+      )
+    }
+
+    // Return created user with tenant info
+    const userWithTenant = await prisma.user.findUnique({
+      where: { id: newUser.id },
+      include: {
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            subdomain: true,
+            isActive: true
+          }
+        }
+      }
+    })
+
+    return NextResponse.json({
+      message: 'User created successfully',
+      user: {
+        id: userWithTenant!.id,
+        username: userWithTenant!.username,
+        email: userWithTenant!.email,
+        role: userWithTenant!.role,
+        phone_number: userWithTenant!.phoneNumber,
+        is_active: userWithTenant!.isActive,
+        created_at: userWithTenant!.createdAt,
+        updated_at: userWithTenant!.updatedAt,
+        tenant: userWithTenant!.tenant,
+        stats: { total_bookings: 0 } // New user has no bookings yet
+      }
+    }, { status: 201 })
+
+  } catch (error) {
+    console.error('Admin user creation error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error', message: 'Failed to create user' },
       { status: 500 }
     )
   }

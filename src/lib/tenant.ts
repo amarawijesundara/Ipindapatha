@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import prisma from './db'
-import { Tenant, TenantContext } from '@/types'
+import { Tenant, TenantContext, TenantMealPeriodConfig, SupportedCurrency, TenantConfigurationSettings } from '@/types'
+import { MEAL_PERIODS, DEFAULT_MEAL_COSTS } from '@/lib/utils/mealCategories'
 
 export class TenantService {
   // Extract tenant from subdomain or header
@@ -22,26 +23,36 @@ export class TenantService {
   static extractSubdomain(host: string): string | null {
     // Remove port if present
     const hostname = host.split(':')[0]
-    
-    // Skip localhost and IP addresses
+
+    // Skip bare localhost and IP addresses first
     if (hostname === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
       return null
     }
 
     // Extract subdomain (everything before first dot)
     const parts = hostname.split('.')
-    if (parts.length < 3) {
-      return null // No subdomain
+
+    // Handle localhost development URLs (e.g., niwandakimu.localhost)
+    if (parts.length === 2 && parts[1] === 'localhost') {
+      const subdomain = parts[0]
+      // Ignore common subdomains
+      if (['www', 'api', 'admin'].includes(subdomain)) {
+        return null
+      }
+      return subdomain
     }
 
-    const subdomain = parts[0]
-    
-    // Ignore common subdomains
-    if (['www', 'api', 'admin'].includes(subdomain)) {
-      return null
+    // Handle production URLs (e.g., niwandakimu.example.com)
+    if (parts.length >= 3) {
+      const subdomain = parts[0]
+      // Ignore common subdomains
+      if (['www', 'api', 'admin'].includes(subdomain)) {
+        return null
+      }
+      return subdomain
     }
 
-    return subdomain
+    return null // No subdomain found
   }
 
   // Find tenant by subdomain
@@ -121,7 +132,9 @@ export class TenantService {
         }
       })
 
-      // Create default tenant settings
+      // Create default tenant settings with meal periods and currency
+      const defaultMealPeriods = this.getDefaultMealPeriods()
+
       await prisma.tenantSettings.create({
         data: {
           tenantId: tenant.id,
@@ -147,7 +160,9 @@ export class TenantService {
             customFields: false,
             multipleBookings: true,
             waitingList: false
-          }
+          },
+          mealPeriods: defaultMealPeriods,
+          currency: 'USD'
         }
       })
 
@@ -277,6 +292,134 @@ export class TenantService {
     } catch (error) {
       console.error('Error checking subdomain availability:', error)
       return false
+    }
+  }
+
+  // Get tenant meal period configuration
+  static async getTenantConfiguration(tenantId: number): Promise<TenantConfigurationSettings | null> {
+    try {
+      const settings = await prisma.tenantSettings.findUnique({
+        where: { tenantId }
+      })
+
+      if (!settings) {
+        // Return default configuration
+        return this.getDefaultConfiguration()
+      }
+
+      // Parse stored configuration or use defaults
+      const mealPeriods = settings.mealPeriods as TenantMealPeriodConfig[] || this.getDefaultMealPeriods()
+      const currency = (settings.currency as SupportedCurrency) || 'USD'
+
+      return {
+        mealPeriods,
+        currency
+      }
+    } catch (error) {
+      console.error('Error getting tenant configuration:', error)
+      return this.getDefaultConfiguration()
+    }
+  }
+
+  // Update tenant meal period and currency configuration
+  static async updateTenantConfiguration(
+    tenantId: number,
+    configuration: Partial<TenantConfigurationSettings>
+  ): Promise<boolean> {
+    try {
+      console.log('🔧 TenantService: Updating configuration for tenant:', tenantId, 'with data:', configuration)
+
+      const updateData: any = {}
+
+      if (configuration.mealPeriods) {
+        updateData.mealPeriods = configuration.mealPeriods
+        console.log('🔧 TenantService: Setting mealPeriods:', updateData.mealPeriods)
+      }
+
+      if (configuration.currency) {
+        updateData.currency = configuration.currency
+        console.log('🔧 TenantService: Setting currency:', updateData.currency)
+      }
+
+      console.log('🔧 TenantService: Final updateData:', updateData)
+
+      const result = await prisma.tenantSettings.upsert({
+        where: { tenantId },
+        update: updateData,
+        create: {
+          tenantId,
+          ...updateData
+        }
+      })
+
+      console.log('🔧 TenantService: Upsert successful, result:', result)
+      return true
+    } catch (error) {
+      console.error('❌ TenantService: Error updating tenant configuration:', error)
+      console.error('❌ TenantService: Error details:', {
+        name: error.name,
+        message: error.message,
+        code: error.code,
+        meta: error.meta
+      })
+      return false
+    }
+  }
+
+  // Get default meal periods configuration
+  static getDefaultMealPeriods(): TenantMealPeriodConfig[] {
+    return Object.values(MEAL_PERIODS).map((period, index) => ({
+      id: period.id,
+      name: period.name,
+      icon: period.icon,
+      timeRange: period.timeRange,
+      description: period.description,
+      color: period.color,
+      cost: DEFAULT_MEAL_COSTS[period.id] || 0,
+      isEnabled: true,
+      order: index + 1
+    }))
+  }
+
+  // Get default configuration
+  static getDefaultConfiguration(): TenantConfigurationSettings {
+    return {
+      mealPeriods: this.getDefaultMealPeriods(),
+      currency: 'USD'
+    }
+  }
+
+  // Get tenant currency
+  static async getTenantCurrency(tenantId: number): Promise<SupportedCurrency> {
+    try {
+      const settings = await prisma.tenantSettings.findUnique({
+        where: { tenantId },
+        select: { currency: true }
+      })
+
+      return (settings?.currency as SupportedCurrency) || 'USD'
+    } catch (error) {
+      console.error('Error getting tenant currency:', error)
+      return 'USD'
+    }
+  }
+
+  // Get tenant meal periods
+  static async getTenantMealPeriods(tenantId: number): Promise<TenantMealPeriodConfig[]> {
+    try {
+      const settings = await prisma.tenantSettings.findUnique({
+        where: { tenantId },
+        select: { mealPeriods: true }
+      })
+
+      if (!settings?.mealPeriods) {
+        return this.getDefaultMealPeriods()
+      }
+
+      return settings.mealPeriods as TenantMealPeriodConfig[]
+    } catch (error) {
+      console.error('Error getting tenant meal periods:', error)
+      return this.getDefaultMealPeriods()
     }
   }
 }

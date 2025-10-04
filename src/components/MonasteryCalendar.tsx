@@ -5,8 +5,44 @@ import Calendar from 'react-calendar'
 import { Button, Card, CardContent, CardHeader, CardTitle, Loading } from '@/components/ui'
 import { MealAvailability } from '@/types'
 import { useAuth } from '@/components/AuthContext'
-import { formatDateForDatabase } from '@/lib/utils/dateValidation'
+import { formatDateForDatabase, normalizeToLocalMidnight, areSameDay } from '@/lib/utils/dateValidation'
 import 'react-calendar/dist/Calendar.css'
+
+// Client-side tenant context extraction utility
+const extractClientTenantContext = () => {
+  if (typeof window === 'undefined') return null
+
+  const hostname = window.location.hostname
+
+  // Extract subdomain from hostname
+  const parts = hostname.split('.')
+
+  // Handle localhost development URLs (e.g., niwandakimu.localhost)
+  if (parts.length === 2 && parts[1] === 'localhost') {
+    const subdomain = parts[0]
+    // Filter out reserved subdomains
+    if (['www', 'api', 'admin'].includes(subdomain)) {
+      return null
+    }
+    console.log('Calendar: Extracted localhost subdomain:', subdomain)
+    return subdomain
+  }
+
+  // Handle production URLs (e.g., niwandakimu.example.com)
+  if (parts.length >= 3) {
+    const subdomain = parts[0]
+    // Filter out reserved subdomains
+    if (['www', 'api', 'admin'].includes(subdomain)) {
+      return null
+    }
+    console.log('Calendar: Extracted production subdomain:', subdomain)
+    return subdomain
+  }
+
+  // No subdomain found (just "localhost" or "domain.com")
+  console.log('Calendar: No subdomain found for hostname:', hostname)
+  return null
+}
 
 interface MonasteryCalendarProps {
   onDateSelect?: (date: Date) => void
@@ -35,28 +71,36 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
   const [availability, setAvailability] = useState<MealAvailability[]>([])
   const [loading, setLoading] = useState(true)
   const [dayAvailability, setDayAvailability] = useState<Map<string, DayAvailability>>(new Map())
-  
+
   // Calendar navigation state
   const [viewDate, setViewDate] = useState<Date>(new Date()) // Currently viewed month/year
-  const [dataCache, setDataCache] = useState<Map<string, BookingAvailability[]>>(new Map()) // Cache for loaded months
+  const [dataCache, setDataCache] = useState<Map<string, MealAvailability[]>>(new Map()) // Cache for loaded months
+
+  // Track current tenant to detect changes
+  const [currentTenant, setCurrentTenant] = useState<string | null>(null)
 
   // Calculate date range for the viewed month (3-month window for better UX)
   const getDateRange = (viewDate: Date) => {
     const year = viewDate.getFullYear()
     const month = viewDate.getMonth()
-    
+
     // Get start of previous month
     const startDate = formatDateForDatabase(new Date(year, month - 1, 1))
     // Get end of next month
     const endDate = formatDateForDatabase(new Date(year, month + 2, 0))
-    
-    return { startDate, endDate, cacheKey: `${year}-${month}` }
+
+    // Include tenant context in cache key to prevent cross-tenant cache pollution
+    const subdomain = extractClientTenantContext()
+    const tenantKey = subdomain || 'default'
+
+    return { startDate, endDate, cacheKey: `${year}-${month}-${tenantKey}` }
   }
 
   useEffect(() => {
     // Fetch availability when auth status changes or view date changes
     if (!authLoading) {
-      fetchAvailability(viewDate)
+      // Force fresh data when auth status changes to ensure correct tenant data
+      fetchAvailability(viewDate, true)
     }
   }, [authLoading, viewDate])
 
@@ -64,35 +108,143 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
   useEffect(() => {
     if (!authLoading && refreshKey && refreshKey > 0) {
       // Clear cache and refetch when refresh is requested
+      console.log('Calendar: Manual refresh requested, clearing all cache')
       setDataCache(new Map())
-      fetchAvailability(viewDate)
+      setDayAvailability(new Map()) // Also clear processed data
+      fetchAvailability(viewDate, true) // Force fresh data
     }
   }, [refreshKey, authLoading])
 
-  const fetchAvailability = async (targetDate: Date = new Date()) => {
+  // Initialize tenant on component mount and force cache clear
+  useEffect(() => {
+    const initialTenant = extractClientTenantContext()
+    console.log('Calendar: Initial tenant detected:', initialTenant || 'default')
+
+    // Force clear all cache on component mount to ensure fresh start
+    setDataCache(new Map())
+    setDayAvailability(new Map())
+    setAvailability([])
+    console.log('Calendar: Cleared all cache and data on mount for fresh start')
+
+    setCurrentTenant(initialTenant)
+  }, [])
+
+  // Detect tenant changes and clear cache when switching subdomains
+  useEffect(() => {
+    const currentSubdomain = extractClientTenantContext()
+
+    if (currentTenant !== null && currentTenant !== currentSubdomain) {
+      // Tenant context has changed - clear cache and refetch
+      console.log('Calendar: Tenant changed from', currentTenant, 'to', currentSubdomain, '- clearing all cache')
+      setDataCache(new Map())
+      setDayAvailability(new Map()) // Also clear processed data
+      setAvailability([]) // Clear raw availability data
+      setCurrentTenant(currentSubdomain)
+
+      if (!authLoading) {
+        fetchAvailability(viewDate, true) // Force fresh data after tenant change
+      }
+    }
+  }, [authLoading, viewDate]) // Removed currentTenant from dependencies to prevent infinite loop
+
+  // Add URL change detection for browser navigation between subdomains
+  useEffect(() => {
+    const handleFocus = () => {
+      // When window regains focus, check if URL changed (covers browser navigation)
+      const currentSubdomain = extractClientTenantContext()
+      if (currentTenant !== currentSubdomain) {
+        console.log('URL changed detected - tenant changed from', currentTenant, 'to', currentSubdomain)
+        setDataCache(new Map())
+        setCurrentTenant(currentSubdomain)
+        if (!authLoading) {
+          fetchAvailability(viewDate, true) // Force fresh data after URL change
+        }
+      }
+    }
+
+    const handleVisibilityChange = () => {
+      // When page becomes visible, check for URL changes
+      if (!document.hidden) {
+        handleFocus()
+      }
+    }
+
+    // Listen for window focus and visibility changes
+    window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [currentTenant, authLoading, viewDate])
+
+  const fetchAvailability = async (targetDate: Date = new Date(), forceFresh: boolean = false) => {
     try {
       const { startDate, endDate, cacheKey } = getDateRange(targetDate)
-      
-      // Check if we already have this data cached
-      if (dataCache.has(cacheKey)) {
+
+      // Check if we already have this data cached (unless forcing fresh data)
+      if (!forceFresh && dataCache.has(cacheKey)) {
         const cachedData = dataCache.get(cacheKey)!
+        console.log('Calendar: Using cached data for', cacheKey)
         setAvailability(cachedData)
         processAvailabilityData(cachedData)
         setLoading(false)
         return
       }
-      
-      const response = await fetch(`/api/bookings/availability?start_date=${startDate}&end_date=${endDate}&limit=${API_LIMIT}`, {
+
+      console.log('Calendar: Fetching fresh data for', cacheKey, forceFresh ? '(forced refresh)' : '(no cache)')
+
+      // Extract tenant context from current URL
+      const subdomain = extractClientTenantContext()
+
+      // Debug logging to verify tenant resolution
+      console.log('Calendar: Fetching availability for subdomain:', subdomain || 'none (default tenant)')
+
+      // Build API URL with tenant context and aggressive cache busting
+      let apiUrl = `/api/bookings/availability?start_date=${startDate}&end_date=${endDate}&limit=${API_LIMIT}`
+
+      // Always add cache busting parameters to ensure fresh data
+      const timestamp = Date.now()
+      apiUrl += `&_t=${timestamp}&_r=${Math.random()}`
+
+      if (subdomain) {
+        apiUrl += `&tenant=${subdomain}`
+      }
+
+      // For super admin users, we can optionally specify tenant via query param
+      // For regular users, the API will use their JWT token's tenant context
+      // For guest users on subdomains, we include the subdomain in headers
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      }
+
+      // If we have a subdomain context, pass it to the API
+      if (subdomain) {
+        headers['x-tenant-subdomain'] = subdomain
+        console.log('Calendar: Sending x-tenant-subdomain header:', subdomain)
+      }
+
+      const response = await fetch(apiUrl, {
         credentials: 'include',
+        headers
       })
 
       if (response.ok) {
         const data = await response.json()
         const availabilityData = data.availability || []
-        
+
+        // Enhanced debug logging
+        console.log('Calendar: API Response received')
+        console.log('Calendar: Availability data count:', availabilityData.length)
+        console.log('Calendar: First few items:', availabilityData.slice(0, 3))
+        console.log('Calendar: Cache key:', cacheKey)
+        console.log('Calendar: Current tenant context:', subdomain || 'default')
+        console.log('Calendar: API URL used:', apiUrl)
+
         // Cache the data for this month
         setDataCache(prev => new Map(prev).set(cacheKey, availabilityData))
-        
+
         setAvailability(availabilityData)
         processAvailabilityData(availabilityData)
       } else {
@@ -158,29 +310,43 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
   const tileClassName = ({ date, view }: { date: Date; view: string }) => {
     if (view !== 'month') return ''
 
-
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-
-    // Create a new Date object and normalize it for consistent date handling
-    const normalizedDate = new Date(date)
-    normalizedDate.setHours(0, 0, 0, 0)
+    // Use timezone-safe date normalization
+    const today = normalizeToLocalMidnight(new Date())
+    const normalizedDate = normalizeToLocalMidnight(date)
 
     const classes = []
     // Use the normalized date for formatting to ensure consistency
     const dateStr = formatDate(normalizedDate)
 
-    // Past dates - highest priority
-    if (normalizedDate < today) {
+    // Past dates - highest priority, but use safer comparison
+    // Add a small buffer to prevent edge cases near midnight
+    const todayTime = today.getTime()
+    const dateTime = normalizedDate.getTime()
+
+    // Debug logging for date comparison issues
+    if (dateStr === '2024-09-30' || dateStr === '2024-10-01') {
+      console.log(`Calendar tile debug - ${dateStr}:`, {
+        originalDate: date,
+        normalizedDate: normalizedDate,
+        today: today,
+        isPast: normalizedDate < today,
+        isPastNew: dateTime < todayTime,
+        dateStr: dateStr,
+        dateTime: dateTime,
+        todayTime: todayTime,
+        timeDiff: dateTime - todayTime
+      })
+    }
+
+    if (dateTime < todayTime) {
       classes.push('past-date')
       return classes.join(' ')
     }
 
     // Selected date - add but don't return early
     if (selectedDate) {
-      const normalizedSelectedDate = new Date(selectedDate)
-      normalizedSelectedDate.setHours(0, 0, 0, 0)
-      if (dateStr === formatDate(normalizedSelectedDate)) {
+      const normalizedSelectedDate = normalizeToLocalMidnight(selectedDate)
+      if (areSameDay(normalizedDate, normalizedSelectedDate)) {
         classes.push('selected-date')
       }
     }
@@ -243,15 +409,15 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
   const tileContent = ({ date, view }: { date: Date; view: string }) => {
     if (view !== 'month') return null
 
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
+    // Use timezone-safe date normalization consistent with tileClassName
+    const today = normalizeToLocalMidnight(new Date())
+    const normalizedDate = normalizeToLocalMidnight(date)
 
-    // Use same normalization approach as tileClassName for consistency
-    const normalizedDate = new Date(date)
-    normalizedDate.setHours(0, 0, 0, 0)
+    // Don't show content for past dates - use same logic as tileClassName
+    const todayTime = today.getTime()
+    const dateTime = normalizedDate.getTime()
 
-    // Don't show content for past dates
-    if (normalizedDate < today) return null
+    if (dateTime < todayTime) return null
 
     const dateStr = formatDate(normalizedDate)
     const dayMeals = availability.filter(meal => {
@@ -318,15 +484,15 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
   const handleDateClick = (value: Date | Date[] | null) => {
     if (!value || Array.isArray(value)) return
 
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
+    // Use timezone-safe date normalization consistent with other functions
+    const today = normalizeToLocalMidnight(new Date())
+    const normalizedDate = normalizeToLocalMidnight(value)
 
-    // Use same normalization approach for consistency with tileClassName and tileContent
-    const normalizedDate = new Date(value)
-    normalizedDate.setHours(0, 0, 0, 0)
+    // Don't allow selecting past dates - use same logic as other functions
+    const todayTime = today.getTime()
+    const dateTime = normalizedDate.getTime()
 
-    // Don't allow selecting past dates
-    if (normalizedDate < today) return
+    if (dateTime < todayTime) return
 
     // Pass the normalized date to ensure consistency with display logic
     // The booking modal will handle availability validation and show appropriate slots
@@ -382,6 +548,10 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
           <p className="text-monastery-600 text-sm md:text-base max-w-2xl mx-auto">
             Select a date to book your Dhane offering ceremony. Available dates are highlighted with status indicators.
           </p>
+          {/* Tenant indicator for debugging */}
+          <div className="mt-3 text-xs text-gray-500 bg-gray-100 rounded px-2 py-1 inline-block">
+            Viewing: {extractClientTenantContext() || 'Main'} tenant
+          </div>
         </CardHeader>
         <CardContent className="px-4 md:px-8">
           {/* Custom Navigation Controls */}
@@ -432,16 +602,15 @@ export default function MonasteryCalendar({ onDateSelect, selectedDate, refreshK
               prevLabel={null}
               nextLabel={null}
               tileDisabled={({ date }) => {
-                const today = new Date()
-                today.setHours(0, 0, 0, 0)
+                // Use timezone-safe date normalization consistent with other functions
+                const today = normalizeToLocalMidnight(new Date())
+                const normalizedDate = normalizeToLocalMidnight(date)
 
-                // Use same normalization approach for consistency
-                const normalizedDate = new Date(date)
-                normalizedDate.setHours(0, 0, 0, 0)
+                // Only disable past dates - use same logic as other functions
+                const todayTime = today.getTime()
+                const dateTime = normalizedDate.getTime()
 
-                // Only disable past dates - let all future dates be clickable
-                // The handleDateClick function will handle availability checking
-                return normalizedDate < today
+                return dateTime < todayTime
               }}
               formatShortWeekday={(locale, date) => {
                 const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']

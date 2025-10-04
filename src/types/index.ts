@@ -35,6 +35,8 @@ export interface TenantSettings {
   branding?: any
   notifications?: any
   features?: any
+  meal_periods?: TenantMealPeriodConfig[]
+  currency?: SupportedCurrency
   created_at: Date
   updated_at: Date
 }
@@ -253,4 +255,31 @@ export interface MealAvailability {
   }
   status: 'available' | 'booked' | 'disabled' | 'recurring_booked'
   source: 'generated' | 'booking' | 'override' | 'recurring'
+}
+
+// Tenant Configuration Types
+export type SupportedCurrency = 'USD' | 'LKR'
+
+export interface TenantMealPeriodConfig {
+  id: MealPeriodId
+  name: string
+  icon: string
+  timeRange: string
+  description: string
+  color: string
+  cost: number
+  isEnabled: boolean
+  order: number
+}
+
+export interface TenantConfigurationSettings {
+  mealPeriods: TenantMealPeriodConfig[]
+  currency: SupportedCurrency
+  timezone?: string
+}
+
+export interface TenantConfigurationUpdateInput {
+  mealPeriods?: TenantMealPeriodConfig[]
+  currency?: SupportedCurrency
+  timezone?: string
 }

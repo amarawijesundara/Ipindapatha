@@ -1,5 +1,6 @@
 import prisma from './db'
 import { PaymentCreateInput, BookingPayment, PaymentReceipt, PaymentWithReceipts } from '@/types'
+import { TenantService } from './tenant'
 
 export class PaymentService {
   // Calculate payment deadline (2 weeks before booking date)
@@ -13,13 +14,19 @@ export class PaymentService {
   // Create a payment record for a booking
   static async createPayment(input: PaymentCreateInput): Promise<BookingPayment | null> {
     try {
+      // Get tenant-specific currency if not provided
+      let currency = input.currency
+      if (!currency) {
+        currency = await TenantService.getTenantCurrency(input.tenantId)
+      }
+
       const payment = await prisma.bookingPayment.create({
         data: {
           bookingId: input.bookingId,
           tenantId: input.tenantId,
           userId: input.userId,
           amount: input.amount,
-          currency: input.currency || 'USD',
+          currency: currency,
           paymentDeadline: input.paymentDeadline,
           status: 'pending'
         }
@@ -50,19 +57,19 @@ export class PaymentService {
   // Get payment by booking ID
   static async getPaymentByBookingId(bookingId: number, tenantId?: number): Promise<PaymentWithReceipts | null> {
     try {
-      const whereCondition: any = { bookingId }
-      if (tenantId !== undefined) {
-        whereCondition.tenantId = tenantId
-      }
-
       const payment = await prisma.bookingPayment.findUnique({
-        where: whereCondition,
+        where: { bookingId },
         include: {
           receipts: {
             orderBy: { createdAt: 'desc' }
           }
         }
       })
+
+      // If tenantId is specified, verify it matches
+      if (payment && tenantId !== undefined && payment.tenantId !== tenantId) {
+        return null
+      }
 
       if (!payment) return null
 
@@ -102,6 +109,147 @@ export class PaymentService {
     } catch (error) {
       console.error('Error getting payment by booking ID:', error)
       return null
+    }
+  }
+
+  // Get multiple payments by booking IDs (for bulk operations)
+  static async getPaymentsByBookingIds(bookingIds: number[], tenantId?: number): Promise<PaymentWithReceipts[]> {
+    try {
+      const whereCondition: any = {
+        bookingId: { in: bookingIds }
+      }
+      if (tenantId !== undefined) {
+        whereCondition.tenantId = tenantId
+      }
+
+      const payments = await prisma.bookingPayment.findMany({
+        where: whereCondition,
+        include: {
+          receipts: {
+            orderBy: { createdAt: 'desc' }
+          }
+        },
+        orderBy: { bookingId: 'asc' }
+      })
+
+      return payments.map(payment => ({
+        id: payment.id,
+        booking_id: payment.bookingId,
+        tenant_id: payment.tenantId,
+        user_id: payment.userId,
+        amount: parseFloat(payment.amount.toString()),
+        currency: payment.currency,
+        payment_deadline: payment.paymentDeadline.toISOString(),
+        status: payment.status as 'pending' | 'paid' | 'verified' | 'overdue' | 'cancelled',
+        paid_at: payment.paidAt?.toISOString() || undefined,
+        verified_at: payment.verifiedAt?.toISOString() || undefined,
+        verified_by: payment.verifiedBy || undefined,
+        notes: payment.notes || undefined,
+        created_at: payment.createdAt.toISOString(),
+        updated_at: payment.updatedAt.toISOString(),
+        receipts: payment.receipts.map(receipt => ({
+          id: receipt.id,
+          payment_id: receipt.paymentId,
+          tenant_id: receipt.tenantId,
+          user_id: receipt.userId,
+          file_name: receipt.fileName,
+          original_name: receipt.originalName,
+          file_path: receipt.filePath,
+          file_size: receipt.fileSize,
+          mime_type: receipt.mimeType,
+          status: receipt.status as 'pending' | 'approved' | 'rejected',
+          rejection_reason: receipt.rejectionReason || undefined,
+          reviewed_at: receipt.reviewedAt?.toISOString() || undefined,
+          reviewed_by: receipt.reviewedBy || undefined,
+          created_at: receipt.createdAt.toISOString(),
+          updated_at: receipt.updatedAt.toISOString()
+        }))
+      }))
+    } catch (error) {
+      console.error('Error getting payments by booking IDs:', error)
+      return []
+    }
+  }
+
+  // Get payments grouped by date for a user (for bulk payment operations)
+  static async getPaymentsGroupedByDate(userId: number, tenantId?: number): Promise<Record<string, PaymentWithReceipts[]>> {
+    try {
+      // First get all bookings with payments for this user
+      const whereCondition: any = {
+        userId,
+        offeringType: 'monetary_donation',
+        status: { in: ['pending', 'confirmed'] }
+      }
+      if (tenantId !== undefined) {
+        whereCondition.tenantId = tenantId
+      }
+
+      const bookingsWithPayments = await prisma.booking.findMany({
+        where: whereCondition,
+        include: {
+          bookingPayment: {
+            include: {
+              receipts: {
+                orderBy: { createdAt: 'desc' }
+              }
+            }
+          }
+        },
+        orderBy: { bookingDate: 'asc' }
+      })
+
+      // Group by date
+      const groupedPayments: Record<string, PaymentWithReceipts[]> = {}
+
+      for (const booking of bookingsWithPayments) {
+        if (booking.bookingPayment) {
+          const dateKey = booking.bookingDate.toISOString().split('T')[0] // YYYY-MM-DD format
+
+          if (!groupedPayments[dateKey]) {
+            groupedPayments[dateKey] = []
+          }
+
+          const payment = booking.bookingPayment
+          groupedPayments[dateKey].push({
+            id: payment.id,
+            booking_id: payment.bookingId,
+            tenant_id: payment.tenantId,
+            user_id: payment.userId,
+            amount: parseFloat(payment.amount.toString()),
+            currency: payment.currency,
+            payment_deadline: payment.paymentDeadline.toISOString(),
+            status: payment.status as 'pending' | 'paid' | 'verified' | 'overdue' | 'cancelled',
+            paid_at: payment.paidAt?.toISOString() || undefined,
+            verified_at: payment.verifiedAt?.toISOString() || undefined,
+            verified_by: payment.verifiedBy || undefined,
+            notes: payment.notes || undefined,
+            created_at: payment.createdAt.toISOString(),
+            updated_at: payment.updatedAt.toISOString(),
+            receipts: payment.receipts.map(receipt => ({
+              id: receipt.id,
+              payment_id: receipt.paymentId,
+              tenant_id: receipt.tenantId,
+              user_id: receipt.userId,
+              file_name: receipt.fileName,
+              original_name: receipt.originalName,
+              file_path: receipt.filePath,
+              file_size: receipt.fileSize,
+              mime_type: receipt.mimeType,
+              status: receipt.status as 'pending' | 'approved' | 'rejected',
+              rejection_reason: receipt.rejectionReason || undefined,
+              reviewed_at: receipt.reviewedAt?.toISOString() || undefined,
+              reviewed_by: receipt.reviewedBy || undefined,
+              created_at: receipt.createdAt.toISOString(),
+              updated_at: receipt.updatedAt.toISOString()
+            }))
+          })
+        }
+      }
+
+      return groupedPayments
+    } catch (error) {
+      console.error('Error getting payments grouped by date:', error)
+      return {}
     }
   }
 
@@ -190,6 +338,65 @@ export class PaymentService {
     } catch (error) {
       console.error('Error creating payment receipt:', error)
       return null
+    }
+  }
+
+  // Create bulk payment receipts (one receipt for multiple payments on same date)
+  static async createBulkPaymentReceipt(
+    paymentIds: number[],
+    tenantId: number,
+    userId: number,
+    fileName: string,
+    originalName: string,
+    filePath: string,
+    fileSize: number,
+    mimeType: string
+  ): Promise<PaymentReceipt[]> {
+    try {
+      const receipts: PaymentReceipt[] = []
+
+      // Create a receipt for each payment
+      for (const paymentId of paymentIds) {
+        const receipt = await prisma.paymentReceipt.create({
+          data: {
+            paymentId,
+            tenantId,
+            userId,
+            fileName,
+            originalName,
+            filePath,
+            fileSize,
+            mimeType,
+            status: 'pending'
+          }
+        })
+
+        // Update payment status to 'paid'
+        await this.updatePaymentStatus(paymentId, 'paid')
+
+        receipts.push({
+          id: receipt.id,
+          payment_id: receipt.paymentId,
+          tenant_id: receipt.tenantId,
+          user_id: receipt.userId,
+          file_name: receipt.fileName,
+          original_name: receipt.originalName,
+          file_path: receipt.filePath,
+          file_size: receipt.fileSize,
+          mime_type: receipt.mimeType,
+          status: receipt.status as 'pending' | 'approved' | 'rejected',
+          rejection_reason: receipt.rejectionReason || undefined,
+          reviewed_at: receipt.reviewedAt || undefined,
+          reviewed_by: receipt.reviewedBy || undefined,
+          created_at: receipt.createdAt,
+          updated_at: receipt.updatedAt
+        })
+      }
+
+      return receipts
+    } catch (error) {
+      console.error('Error creating bulk payment receipts:', error)
+      return []
     }
   }
 
@@ -307,7 +514,7 @@ export class PaymentService {
   static async markOverduePayments(): Promise<number> {
     try {
       const currentDate = new Date()
-      
+
       const result = await prisma.bookingPayment.updateMany({
         where: {
           status: 'pending',
@@ -325,6 +532,55 @@ export class PaymentService {
     } catch (error) {
       console.error('Error marking overdue payments:', error)
       return 0
+    }
+  }
+
+  // Create payment record for booking without existing payment (for recurring bookings, etc.)
+  static async createPaymentForBooking(
+    bookingId: number,
+    tenantId: number,
+    userId: number,
+    amount: number,
+    bookingDate: Date
+  ): Promise<BookingPayment | null> {
+    try {
+      // Get tenant-specific currency
+      const currency = await TenantService.getTenantCurrency(tenantId)
+
+      // Calculate payment deadline (2 weeks before booking date)
+      const paymentDeadline = this.calculatePaymentDeadline(bookingDate)
+
+      const payment = await prisma.bookingPayment.create({
+        data: {
+          bookingId: bookingId,
+          tenantId: tenantId,
+          userId: userId,
+          amount: amount,
+          currency: currency,
+          paymentDeadline: paymentDeadline,
+          status: 'pending'
+        }
+      })
+
+      return {
+        id: payment.id,
+        booking_id: payment.bookingId,
+        tenant_id: payment.tenantId,
+        user_id: payment.userId,
+        amount: payment.amount.toNumber(),
+        currency: payment.currency,
+        payment_deadline: payment.paymentDeadline,
+        status: payment.status as 'pending' | 'paid' | 'verified' | 'overdue' | 'cancelled',
+        paid_at: payment.paidAt || undefined,
+        verified_at: payment.verifiedAt || undefined,
+        verified_by: payment.verifiedBy || undefined,
+        notes: payment.notes || undefined,
+        created_at: payment.createdAt,
+        updated_at: payment.updatedAt
+      }
+    } catch (error) {
+      console.error('Error creating payment for booking:', error)
+      return null
     }
   }
 }

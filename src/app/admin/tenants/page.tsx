@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Button, Loading } from '@/components/ui'
 import AdminTable from '@/components/ui/AdminTable'
+import { TenantMealPeriodConfig, SupportedCurrency, TenantConfigurationSettings } from '@/types'
 
 interface Tenant {
   id: number
@@ -43,6 +44,12 @@ export default function TenantsPage() {
     maxUsers: 10,
     maxBookings: 1000
   })
+
+  // Configuration management state
+  const [showConfigModal, setShowConfigModal] = useState(false)
+  const [configLoading, setConfigLoading] = useState(false)
+  const [savingConfig, setSavingConfig] = useState(false)
+  const [tenantConfig, setTenantConfig] = useState<TenantConfigurationSettings | null>(null)
 
   useEffect(() => {
     fetchTenants()
@@ -229,6 +236,119 @@ export default function TenantsPage() {
     }
   }
 
+  // Configuration management functions
+  const fetchTenantConfiguration = async (tenantId: number) => {
+    setConfigLoading(true)
+    try {
+      let token = localStorage.getItem('token')
+
+      if (!token) {
+        const tokenResponse = await fetch('/api/auth/token', {
+          credentials: 'include'
+        })
+        if (tokenResponse.ok) {
+          const tokenData = await tokenResponse.json()
+          token = tokenData.token
+        }
+      }
+
+      if (!token) return
+
+      const response = await fetch(`/api/admin/tenants/${tenantId}/configuration`, {
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: 'include'
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setTenantConfig(data.configuration)
+      } else {
+        console.error('Failed to fetch tenant configuration')
+      }
+    } catch (error) {
+      console.error('Failed to fetch tenant configuration:', error)
+    } finally {
+      setConfigLoading(false)
+    }
+  }
+
+  const handleConfigureTenant = (tenant: Tenant) => {
+    setSelectedTenant(tenant)
+    setShowConfigModal(true)
+    fetchTenantConfiguration(tenant.id)
+  }
+
+  const saveTenantConfiguration = async () => {
+    if (!selectedTenant || !tenantConfig) return
+
+    setSavingConfig(true)
+    try {
+      let token = localStorage.getItem('token')
+
+      if (!token) {
+        const tokenResponse = await fetch('/api/auth/token', {
+          credentials: 'include'
+        })
+        if (tokenResponse.ok) {
+          const tokenData = await tokenResponse.json()
+          token = tokenData.token
+        }
+      }
+
+      if (!token) return
+
+      const response = await fetch(`/api/admin/tenants/${selectedTenant.id}/configuration`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        credentials: 'include',
+        body: JSON.stringify(tenantConfig)
+      })
+
+      if (response.ok) {
+        setShowConfigModal(false)
+        setSelectedTenant(null)
+        setTenantConfig(null)
+      } else {
+        const error = await response.json()
+        alert(`Failed to save configuration: ${error.message}`)
+      }
+    } catch (error) {
+      console.error('Failed to save tenant configuration:', error)
+      alert('Failed to save configuration')
+    } finally {
+      setSavingConfig(false)
+    }
+  }
+
+  const updateMealPeriodCost = (mealPeriodId: string, cost: number) => {
+    if (!tenantConfig) return
+
+    const updatedMealPeriods = tenantConfig.mealPeriods.map(period =>
+      period.id === mealPeriodId ? { ...period, cost } : period
+    )
+
+    setTenantConfig({
+      ...tenantConfig,
+      mealPeriods: updatedMealPeriods
+    })
+  }
+
+  const toggleMealPeriodEnabled = (mealPeriodId: string) => {
+    if (!tenantConfig) return
+
+    const updatedMealPeriods = tenantConfig.mealPeriods.map(period =>
+      period.id === mealPeriodId ? { ...period, isEnabled: !period.isEnabled } : period
+    )
+
+    setTenantConfig({
+      ...tenantConfig,
+      mealPeriods: updatedMealPeriods
+    })
+  }
+
   const columns = [
     {
       key: 'name',
@@ -347,6 +467,17 @@ export default function TenantsPage() {
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => handleConfigureTenant(tenant)}
+            title="Configure meal periods and currency"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
           </Button>
           <Button
@@ -800,6 +931,150 @@ export default function TenantsPage() {
                     Close
                   </Button>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Configuration Modal */}
+      {showConfigModal && selectedTenant && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-monastery-200">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-monastery-800">
+                  Configure {selectedTenant.name}
+                </h2>
+                <button
+                  onClick={() => {
+                    setShowConfigModal(false)
+                    setSelectedTenant(null)
+                    setTenantConfig(null)
+                  }}
+                  className="text-monastery-500 hover:text-monastery-700"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6">
+              {configLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loading size="lg" />
+                  <span className="ml-2 text-monastery-600">Loading configuration...</span>
+                </div>
+              ) : tenantConfig ? (
+                <div className="space-y-6">
+                  {/* Currency Configuration */}
+                  <div>
+                    <h3 className="text-lg font-semibold text-monastery-800 mb-4">Currency Settings</h3>
+                    <div className="bg-monastery-50 p-4 rounded-lg">
+                      <label className="block text-sm font-medium text-monastery-700 mb-2">
+                        Base Currency
+                      </label>
+                      <select
+                        value={tenantConfig.currency}
+                        onChange={(e) => setTenantConfig({
+                          ...tenantConfig,
+                          currency: e.target.value as SupportedCurrency
+                        })}
+                        className="w-full px-3 py-2 border border-monastery-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      >
+                        <option value="USD">USD - US Dollar</option>
+                        <option value="LKR">LKR - Sri Lankan Rupee</option>
+                      </select>
+                      <p className="text-xs text-monastery-600 mt-1">
+                        This currency will be used for all payments and pricing in this tenant.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Meal Periods Configuration */}
+                  <div>
+                    <h3 className="text-lg font-semibold text-monastery-800 mb-4">Meal Period Settings</h3>
+                    <div className="space-y-4">
+                      {tenantConfig.mealPeriods.map((period) => (
+                        <div key={period.id} className="bg-monastery-50 p-4 rounded-lg">
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center space-x-3">
+                              <span className="text-xl">{period.icon}</span>
+                              <div>
+                                <h4 className="font-medium text-monastery-800">{period.name}</h4>
+                                <p className="text-sm text-monastery-600">{period.timeRange}</p>
+                              </div>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={period.isEnabled}
+                                onChange={() => toggleMealPeriodEnabled(period.id)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-11 h-6 bg-monastery-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-monastery-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-600"></div>
+                            </label>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium text-monastery-700 mb-1">
+                                Cost ({tenantConfig.currency})
+                              </label>
+                              <input
+                                type="number"
+                                value={period.cost}
+                                onChange={(e) => updateMealPeriodCost(period.id, parseFloat(e.target.value) || 0)}
+                                className="w-full px-3 py-2 border border-monastery-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                min="0"
+                                step="0.01"
+                                disabled={!period.isEnabled}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-monastery-700 mb-1">
+                                Description
+                              </label>
+                              <input
+                                type="text"
+                                value={period.description}
+                                className="w-full px-3 py-2 border border-monastery-200 rounded-lg bg-monastery-100 text-monastery-600"
+                                disabled
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-monastery-600">Failed to load configuration</p>
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t border-monastery-200 bg-monastery-50 rounded-b-xl">
+              <div className="flex justify-end space-x-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowConfigModal(false)
+                    setSelectedTenant(null)
+                    setTenantConfig(null)
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={saveTenantConfiguration}
+                  loading={savingConfig}
+                  disabled={!tenantConfig}
+                >
+                  Save Configuration
+                </Button>
               </div>
             </div>
           </div>

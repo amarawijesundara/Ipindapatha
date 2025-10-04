@@ -4,8 +4,16 @@ import React, { useState, useRef } from 'react'
 import { Button } from '@/components/ui'
 
 interface PaymentReceiptUploadProps {
-  paymentId: number
-  bookingId: number
+  paymentId?: number
+  bookingId?: number
+  bulkPayments?: Array<{
+    paymentId: number
+    bookingId: number
+    amount: number
+    currency: string
+    mealPeriod: string
+  }>
+  bulkDate?: string
   onUploadSuccess: (receiptData: any) => void
   onCancel?: () => void
   disabled?: boolean
@@ -20,10 +28,13 @@ interface UploadProgress {
 export default function PaymentReceiptUpload({
   paymentId,
   bookingId,
+  bulkPayments,
+  bulkDate,
   onUploadSuccess,
   onCancel,
   disabled = false
 }: PaymentReceiptUploadProps) {
+  const isBulkUpload = bulkPayments && bulkPayments.length > 0
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploadProgress, setUploadProgress] = useState<UploadProgress>({
     progress: 0,
@@ -110,8 +121,27 @@ export default function PaymentReceiptUpload({
     try {
       const formData = new FormData()
       formData.append('file', selectedFile)
-      formData.append('paymentId', paymentId.toString())
-      formData.append('bookingId', bookingId.toString())
+
+      if (isBulkUpload && bulkPayments) {
+        // For bulk uploads, check if all have payment IDs or if we need to use booking IDs
+        const hasPlaceholderPayments = bulkPayments.some(p => p.paymentId === 0)
+
+        if (hasPlaceholderPayments) {
+          // Send booking IDs instead for mixed scenarios
+          const bookingIds = bulkPayments.map(p => p.bookingId.toString()).join(',')
+          formData.append('bulkBookingIds', bookingIds)
+        } else {
+          // Send payment IDs for traditional bulk uploads
+          const paymentIds = bulkPayments.map(p => p.paymentId.toString()).join(',')
+          formData.append('bulkPaymentIds', paymentIds)
+        }
+      } else {
+        // For single uploads
+        if (paymentId) {
+          formData.append('paymentId', paymentId.toString())
+        }
+        formData.append('bookingId', bookingId!.toString())
+      }
 
       const response = await fetch('/api/bookings/payments/receipts', {
         method: 'POST',
@@ -177,13 +207,35 @@ export default function PaymentReceiptUpload({
   return (
     <div className="bg-white border border-monastery-200 rounded-lg p-6">
       <div className="text-center mb-6">
-        <div className="text-2xl mb-2">📄</div>
+        <div className="text-2xl mb-2">{isBulkUpload ? '📄📄' : '📄'}</div>
         <h3 className="text-lg font-semibold text-monastery-800 mb-2">
-          Upload Payment Receipt
+          {isBulkUpload ? 'Upload Receipt for Multiple Meals' : 'Upload Payment Receipt'}
         </h3>
         <p className="text-sm text-monastery-600">
-          Upload your payment receipt or bank transfer confirmation for verification
+          {isBulkUpload
+            ? `Upload one receipt for all ${bulkPayments?.length} meals on ${bulkDate}`
+            : 'Upload your payment receipt or bank transfer confirmation for verification'
+          }
         </p>
+        {isBulkUpload && bulkPayments && (
+          <div className="mt-3 p-3 bg-primary-50 border border-primary-200 rounded-lg">
+            <p className="text-sm font-medium text-primary-800 mb-2">Meals included:</p>
+            <div className="text-xs text-primary-700 space-y-1">
+              {bulkPayments.map((payment, index) => (
+                <div key={index} className="flex justify-between">
+                  <span>{payment.mealPeriod.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
+                  <span>{payment.currency} {payment.amount}</span>
+                </div>
+              ))}
+              <div className="border-t border-primary-300 pt-1 mt-2 font-medium">
+                <div className="flex justify-between">
+                  <span>Total:</span>
+                  <span>{bulkPayments[0].currency} {bulkPayments.reduce((sum, p) => sum + p.amount, 0)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* File Upload Area */}

@@ -4,7 +4,8 @@
  * where meal periods are the primary booking unit
  */
 
-import { MealPeriodId, MealPeriod } from '@/types'
+import { MealPeriodId, MealPeriod, TenantMealPeriodConfig } from '@/types'
+import { TenantService } from '@/lib/tenant'
 
 /**
  * Authentic Monastic Meal Schedule
@@ -196,4 +197,128 @@ export function getMealPeriodDefaultTime(mealPeriodId: MealPeriodId): string {
   }
 
   return mealPeriodToTime[mealPeriodId]
+}
+
+// Tenant-specific meal period utilities
+
+/**
+ * Get tenant-specific meal period information
+ */
+export async function getTenantMealPeriodInfo(tenantId: number, mealPeriodId: MealPeriodId): Promise<TenantMealPeriodConfig | null> {
+  try {
+    const tenantMealPeriods = await TenantService.getTenantMealPeriods(tenantId)
+    return tenantMealPeriods.find(period => period.id === mealPeriodId) || null
+  } catch (error) {
+    console.error('Error getting tenant meal period info:', error)
+    return null
+  }
+}
+
+/**
+ * Get all enabled tenant meal periods
+ */
+export async function getTenantEnabledMealPeriods(tenantId: number): Promise<TenantMealPeriodConfig[]> {
+  try {
+    const tenantMealPeriods = await TenantService.getTenantMealPeriods(tenantId)
+    return tenantMealPeriods.filter(period => period.isEnabled)
+  } catch (error) {
+    console.error('Error getting tenant enabled meal periods:', error)
+    return TenantService.getDefaultMealPeriods().filter(period => period.isEnabled)
+  }
+}
+
+/**
+ * Calculate total cost for selected meal periods using tenant-specific pricing
+ */
+export async function calculateTenantMealCosts(
+  tenantId: number,
+  mealPeriods: MealPeriodId[]
+): Promise<number> {
+  try {
+    const tenantMealPeriods = await TenantService.getTenantMealPeriods(tenantId)
+    const tenantCosts: Record<string, number> = {}
+
+    tenantMealPeriods.forEach(period => {
+      tenantCosts[period.id] = period.cost
+    })
+
+    return mealPeriods.reduce((total, periodId) => {
+      return total + (tenantCosts[periodId] || DEFAULT_MEAL_COSTS[periodId] || 0)
+    }, 0)
+  } catch (error) {
+    console.error('Error calculating tenant meal costs:', error)
+    return calculateMealCosts(mealPeriods)
+  }
+}
+
+/**
+ * Get tenant-specific meal period display information
+ */
+export async function getTenantMealPeriodDisplay(tenantId: number, mealPeriodId: MealPeriodId) {
+  try {
+    const tenantPeriod = await getTenantMealPeriodInfo(tenantId, mealPeriodId)
+
+    if (tenantPeriod) {
+      return {
+        id: tenantPeriod.id,
+        name: tenantPeriod.name,
+        icon: tenantPeriod.icon,
+        timeRange: tenantPeriod.timeRange,
+        description: tenantPeriod.description,
+        color: tenantPeriod.color,
+        cost: tenantPeriod.cost,
+        isEnabled: tenantPeriod.isEnabled
+      }
+    }
+
+    // Fallback to default
+    return getMealPeriodDisplay(mealPeriodId)
+  } catch (error) {
+    console.error('Error getting tenant meal period display:', error)
+    return getMealPeriodDisplay(mealPeriodId)
+  }
+}
+
+/**
+ * Get tenant-specific currency
+ */
+export async function getTenantCurrency(tenantId: number): Promise<string> {
+  try {
+    return await TenantService.getTenantCurrency(tenantId)
+  } catch (error) {
+    console.error('Error getting tenant currency:', error)
+    return 'USD'
+  }
+}
+
+/**
+ * Format currency amount using tenant-specific currency
+ */
+export async function formatTenantCurrency(tenantId: number, amount: number): Promise<string> {
+  try {
+    const currency = await getTenantCurrency(tenantId)
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency
+    }).format(amount)
+  } catch (error) {
+    console.error('Error formatting tenant currency:', error)
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD'
+    }).format(amount)
+  }
+}
+
+/**
+ * Check if a meal period is enabled for the tenant
+ */
+export async function isTenantMealPeriodEnabled(tenantId: number, mealPeriodId: MealPeriodId): Promise<boolean> {
+  try {
+    const tenantPeriod = await getTenantMealPeriodInfo(tenantId, mealPeriodId)
+    return tenantPeriod?.isEnabled ?? true
+  } catch (error) {
+    console.error('Error checking if tenant meal period is enabled:', error)
+    return true
+  }
 }

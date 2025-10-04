@@ -9,14 +9,17 @@ import PaymentReceiptUpload from '@/components/PaymentReceiptUpload'
 import { parseBookingDate } from '@/lib/utils/dateValidation'
 
 interface Booking {
-  id: number
+  id: number | string // Can be number or "recurring-{id}"
   booking_date: string | Date
   meal_period?: 'morning_meal' | 'morning_tea' | 'lunch_meal' | 'evening_tea'
   event_note?: string
-  status: 'pending' | 'confirmed' | 'cancelled'
+  status: 'pending' | 'confirmed' | 'cancelled' | 'recurring'
   offering_type?: 'food_preparation' | 'monetary_donation'
   created_at: string
   updated_at: string
+  is_recurring?: boolean
+  booking_type?: 'regular' | 'recurring'
+  recurring_pattern?: string
   payment?: {
     id: number
     amount: number
@@ -43,11 +46,24 @@ export default function MyAccount() {
   const [error, setError] = useState<string | null>(null)
   const [showPaymentUpload, setShowPaymentUpload] = useState(false)
   const [selectedPayment, setSelectedPayment] = useState<{
-    paymentId: number
+    paymentId?: number
     bookingId: number
     amount: number
     currency: string
   } | null>(null)
+  const [selectedBulkPayments, setSelectedBulkPayments] = useState<{
+    date: string
+    payments: Array<{
+      paymentId: number
+      bookingId: number
+      amount: number
+      currency: string
+      mealPeriod: string
+    }>
+    totalAmount: number
+    currency: string
+  } | null>(null)
+  const [groupedPayments, setGroupedPayments] = useState<Record<string, Booking[]>>({})
 
   useEffect(() => {
     fetchUserData()
@@ -70,6 +86,11 @@ export default function MyAccount() {
         const bookingsWithPayments = await Promise.all(
           userBookings.map(async (booking: Booking) => {
             if (booking.offering_type === 'monetary_donation') {
+              // Skip payment fetching for recurring booking templates
+              if (typeof booking.id === 'string' && booking.id.startsWith('recurring-')) {
+                return booking // Return booking without payment data
+              }
+
               try {
                 const paymentResponse = await fetch(`/api/bookings/payments?bookingId=${booking.id}`, {
                   credentials: 'include',
@@ -85,15 +106,31 @@ export default function MyAccount() {
             return booking
           })
         )
-        
+
         setBookings(bookingsWithPayments)
-        
+
+        // Group payments by date for bulk upload functionality
+        const paymentsGrouped: Record<string, Booking[]> = {}
+        bookingsWithPayments.forEach((booking: Booking) => {
+          if (booking.offering_type === 'monetary_donation') {
+            const dateKey = typeof booking.booking_date === 'string'
+              ? booking.booking_date.split('T')[0]
+              : booking.booking_date.toISOString().split('T')[0]
+
+            if (!paymentsGrouped[dateKey]) {
+              paymentsGrouped[dateKey] = []
+            }
+            paymentsGrouped[dateKey].push(booking)
+          }
+        })
+        setGroupedPayments(paymentsGrouped)
+
         // Calculate stats from bookings data
         const stats = {
-          totalBookings: bookingsWithPayments.length,
-          pendingBookings: bookingsWithPayments.filter((b: Booking) => b.status === 'pending').length,
-          confirmedBookings: bookingsWithPayments.filter((b: Booking) => b.status === 'confirmed').length,
-          cancelledBookings: bookingsWithPayments.filter((b: Booking) => b.status === 'cancelled').length,
+          totalBookings: userBookings.length,
+          pendingBookings: userBookings.filter((b: Booking) => b.status === 'pending').length,
+          confirmedBookings: userBookings.filter((b: Booking) => b.status === 'confirmed').length,
+          cancelledBookings: userBookings.filter((b: Booking) => b.status === 'cancelled').length,
         }
         setStats(stats)
       } else {
@@ -121,11 +158,12 @@ export default function MyAccount() {
     }
   }
 
-  const getStatusColor = (status: 'pending' | 'confirmed' | 'cancelled') => {
+  const getStatusColor = (status: 'pending' | 'confirmed' | 'cancelled' | 'recurring') => {
     switch (status) {
       case 'confirmed': return 'bg-success-50 text-success-700 border-success-200'
       case 'pending': return 'bg-warning-50 text-warning-700 border-warning-200'
       case 'cancelled': return 'bg-error-50 text-error-700 border-error-200'
+      case 'recurring': return 'bg-blue-50 text-blue-700 border-blue-200'
       default: return 'bg-secondary-50 text-secondary-700 border-secondary-200'
     }
   }
@@ -204,13 +242,25 @@ export default function MyAccount() {
     return new Date(paymentDeadline) < new Date()
   }
 
-  const handleOpenPaymentUpload = (booking: Booking) => {
+  const handleOpenPaymentUpload = async (booking: Booking) => {
     if (booking.payment) {
+      // Regular booking with existing payment record
       setSelectedPayment({
         paymentId: booking.payment.id,
         bookingId: booking.id,
         amount: booking.payment.amount,
         currency: booking.payment.currency
+      })
+      setShowPaymentUpload(true)
+    } else {
+      // Booking without payment record (recurring bookings, etc.)
+      // For now, we'll create a placeholder payment upload without paymentId
+      // The upload component will need to handle creating the payment record
+      setSelectedPayment({
+        paymentId: undefined, // No payment record yet
+        bookingId: booking.id,
+        amount: 0, // Will be handled in upload component
+        currency: 'USD' // Default, will be determined by tenant
       })
       setShowPaymentUpload(true)
     }
@@ -221,6 +271,50 @@ export default function MyAccount() {
     fetchUserData()
     setShowPaymentUpload(false)
     setSelectedPayment(null)
+    setSelectedBulkPayments(null)
+  }
+
+  const handleOpenBulkPaymentUpload = async (date: string, bookings: Booking[]) => {
+    // For bulk uploads with mixed scenarios, we'll handle it differently
+    // For now, let's ensure all bookings have payment records by creating them if needed
+    const bookingsWithPayments = []
+    const defaultAmount = 50.00 // This could be made configurable
+
+    for (const booking of bookings) {
+      if (booking.payment) {
+        // Booking already has payment record
+        if (booking.payment.status === 'pending' || booking.payment.status === 'paid') {
+          bookingsWithPayments.push({
+            paymentId: booking.payment.id,
+            bookingId: typeof booking.id === 'string' ? parseInt(booking.id) : booking.id,
+            amount: booking.payment.amount,
+            currency: booking.payment.currency,
+            mealPeriod: booking.meal_period || 'unknown'
+          })
+        }
+      } else {
+        // For bookings without payment records, we'll create placeholder entries
+        // The actual payment creation will happen during upload
+        bookingsWithPayments.push({
+          paymentId: 0, // Placeholder, will be created during upload
+          bookingId: typeof booking.id === 'string' ? parseInt(booking.id) : booking.id,
+          amount: defaultAmount,
+          currency: 'USD', // Default, will be determined by tenant
+          mealPeriod: booking.meal_period || 'unknown'
+        })
+      }
+    }
+
+    if (bookingsWithPayments.length > 0) {
+      const totalAmount = bookingsWithPayments.reduce((sum, payment) => sum + payment.amount, 0)
+      setSelectedBulkPayments({
+        date,
+        payments: bookingsWithPayments,
+        totalAmount,
+        currency: bookingsWithPayments.find(p => p.paymentId > 0)?.currency || 'USD'
+      })
+      setShowPaymentUpload(true)
+    }
   }
 
   // Get recent bookings (last 5)
@@ -452,6 +546,14 @@ export default function MyAccount() {
                                   <p className="text-xs text-monastery-600">
                                     {getOfferingTypeLabel(booking.offering_type)}
                                   </p>
+                                  {booking.is_recurring && (
+                                    <div className="text-xs text-blue-600 font-medium flex items-center mt-1">
+                                      <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                      </svg>
+                                      Yearly Recurring
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                               
@@ -501,13 +603,12 @@ export default function MyAccount() {
                               </span>
                               
                               {/* Payment Action Button */}
-                              {booking.offering_type === 'monetary_donation' && booking.payment && 
-                               (booking.payment.status === 'pending' || booking.payment.status === 'paid') && (
+                              {booking.offering_type === 'monetary_donation' && (
                                 <button
                                   onClick={() => handleOpenPaymentUpload(booking)}
                                   className="text-xs px-2 py-1 bg-primary-100 text-primary-700 rounded hover:bg-primary-200 transition-colors"
                                 >
-                                  {booking.payment.status === 'pending' ? 'Upload Receipt' : 'Update Receipt'}
+                                  {booking.payment?.status === 'paid' ? 'Update Receipt' : 'Upload Receipt'}
                                 </button>
                               )}
                             </div>
@@ -573,6 +674,87 @@ export default function MyAccount() {
                 </CardContent>
               </Card>
 
+              {/* Admin Dashboard - Only show for admin users */}
+              {(user?.role === 'super_admin' || user?.role === 'tenant_admin') && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center space-x-2">
+                      <svg className="w-5 h-5 text-monastery-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      <span>
+                        {user?.role === 'super_admin' ? 'Platform Administration' : 'Monastery Administration'}
+                      </span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <Link href="/admin/dashboard" className="block">
+                        <Button variant="outline" className="w-full h-auto p-3 flex flex-col items-center space-y-1">
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                          </svg>
+                          <span className="text-sm font-medium">Dashboard</span>
+                        </Button>
+                      </Link>
+
+                      <Link href="/admin/bookings" className="block">
+                        <Button variant="outline" className="w-full h-auto p-3 flex flex-col items-center space-y-1">
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                          <span className="text-sm font-medium">Bookings</span>
+                        </Button>
+                      </Link>
+
+                      <Link href="/admin/users" className="block">
+                        <Button variant="outline" className="w-full h-auto p-3 flex flex-col items-center space-y-1">
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                          </svg>
+                          <span className="text-sm font-medium">Users</span>
+                        </Button>
+                      </Link>
+
+                      <Link href="/admin/availability" className="block">
+                        <Button variant="outline" className="w-full h-auto p-3 flex flex-col items-center space-y-1">
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <span className="text-sm font-medium">Availability</span>
+                        </Button>
+                      </Link>
+                    </div>
+
+                    {user?.role === 'super_admin' && (
+                      <div className="pt-3 border-t border-monastery-200">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <Link href="/admin/tenants" className="block">
+                            <Button variant="outline" className="w-full h-auto p-3 flex flex-col items-center space-y-1">
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                              </svg>
+                              <span className="text-sm font-medium">Tenants</span>
+                            </Button>
+                          </Link>
+
+                          <Link href="/admin/settings" className="block">
+                            <Button variant="outline" className="w-full h-auto p-3 flex flex-col items-center space-y-1">
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              </svg>
+                              <span className="text-sm font-medium">Settings</span>
+                            </Button>
+                          </Link>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Quick Actions */}
               <Card>
                 <CardHeader>
@@ -596,14 +778,6 @@ export default function MyAccount() {
                       Edit Profile
                     </Button>
                   </Link>
-
-                  {(user?.role === 'super_admin' || user?.role === 'tenant_admin') && (
-                    <Link href="/admin" className="block">
-                      <Button variant="outline" className="w-full">
-                        Admin Panel
-                      </Button>
-                    </Link>
-                  )}
                 </CardContent>
               </Card>
 
@@ -643,17 +817,115 @@ export default function MyAccount() {
             </div>
           </div>
 
+          {/* Payment Management Section */}
+          {Object.keys(groupedPayments).length > 0 && (
+            <div className="mt-8">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    💰 Payment Management
+                    <span className="text-sm font-normal text-monastery-600">
+                      Upload receipts for multiple meals at once
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {Object.entries(groupedPayments).map(([date, bookingsForDate]) => {
+                      // Include bookings that either:
+                      // 1. Have payment records needing receipts (pending/paid status)
+                      // 2. Don't have payment records yet (for recurring bookings, etc.)
+                      const bookingsNeedingReceipts = bookingsForDate.filter(
+                        booking => {
+                          // Include if no payment record (will create on upload)
+                          if (!booking.payment) return true
+                          // Include if payment exists and needs receipt
+                          return booking.payment.status === 'pending' || booking.payment.status === 'paid'
+                        }
+                      )
+
+                      if (bookingsNeedingReceipts.length === 0) return null
+
+                      // Calculate total for bookings with payment records
+                      const bookingsWithPayments = bookingsNeedingReceipts.filter(b => b.payment)
+                      const totalAmount = bookingsWithPayments.reduce(
+                        (sum, booking) => sum + (booking.payment?.amount || 0), 0
+                      )
+                      const currency = bookingsWithPayments[0]?.payment?.currency || 'USD'
+                      const bookingsWithoutPayments = bookingsNeedingReceipts.filter(b => !b.payment)
+
+                      return (
+                        <div key={date} className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                          <div className="flex items-center justify-between mb-3">
+                            <div>
+                              <h4 className="font-medium text-monastery-800">
+                                📅 {new Date(date).toLocaleDateString('en-US', {
+                                  weekday: 'long',
+                                  year: 'numeric',
+                                  month: 'long',
+                                  day: 'numeric'
+                                })}
+                              </h4>
+                              <p className="text-sm text-monastery-600">
+                                {bookingsNeedingReceipts.length} meal{bookingsNeedingReceipts.length > 1 ? 's' : ''} •
+                                {bookingsWithPayments.length > 0 && ` Total: ${currency} ${totalAmount}`}
+                                {bookingsWithoutPayments.length > 0 && ` (${bookingsWithoutPayments.length} pending payment creation)`}
+                              </p>
+                            </div>
+                            {bookingsNeedingReceipts.length > 1 ? (
+                              <Button
+                                onClick={() => handleOpenBulkPaymentUpload(date, bookingsNeedingReceipts)}
+                                size="sm"
+                                className="bg-primary-500 hover:bg-primary-600 text-white"
+                              >
+                                📄 Upload One Receipt for All
+                              </Button>
+                            ) : (
+                              <Button
+                                onClick={() => handleOpenPaymentUpload(bookingsNeedingReceipts[0])}
+                                size="sm"
+                                variant="outline"
+                              >
+                                Upload Receipt
+                              </Button>
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                            {bookingsNeedingReceipts.map((booking, index) => (
+                              <div key={index} className="flex justify-between bg-white p-2 rounded border">
+                                <span className="text-monastery-700">
+                                  {booking.meal_period?.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Unknown'}
+                                </span>
+                                <span className="font-medium text-monastery-800">
+                                  {currency} {booking.payment?.amount || 0}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
           {/* Payment Receipt Upload Modal */}
-          {showPaymentUpload && selectedPayment && (
+          {showPaymentUpload && (selectedPayment || selectedBulkPayments) && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
               <div className="w-full max-w-lg">
                 <PaymentReceiptUpload
-                  paymentId={selectedPayment.paymentId}
-                  bookingId={selectedPayment.bookingId}
+                  paymentId={selectedPayment?.paymentId}
+                  bookingId={selectedPayment?.bookingId}
+                  bulkPayments={selectedBulkPayments?.payments}
+                  bulkDate={selectedBulkPayments?.date}
                   onUploadSuccess={handlePaymentUploadSuccess}
                   onCancel={() => {
                     setShowPaymentUpload(false)
                     setSelectedPayment(null)
+                    setSelectedBulkPayments(null)
                   }}
                 />
               </div>

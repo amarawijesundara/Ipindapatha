@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { StatsCard, Loading, Button } from '@/components/ui'
 import AdminTable from '@/components/ui/AdminTable'
+import { useAuth } from '@/components/AuthContext'
 
 interface PlatformStats {
   overview: {
@@ -57,20 +58,100 @@ interface PlatformStats {
   }>
 }
 
+interface TenantStats {
+  tenant: {
+    id: number
+    name: string
+    subdomain: string
+    is_active: boolean
+    subscription?: {
+      plan: string
+      status: string
+      maxUsers: number
+      maxBookings: number
+    }
+  }
+  overview: {
+    total_users: number
+    active_users: number
+    inactive_users: number
+    total_bookings: number
+    recent_bookings: number
+    confirmed_bookings: number
+    pending_bookings: number
+    cancelled_bookings: number
+  }
+  growth: {
+    users: {
+      current_period: number
+      previous_period: number
+      growth_percentage: number
+    }
+    bookings: {
+      current_period: number
+      previous_period: number
+      growth_percentage: number
+    }
+  }
+  distribution: {
+    users_by_role: Array<{ role: string; count: number }>
+    bookings_by_status: Array<{ status: string; count: number }>
+  }
+  recent_activity: {
+    new_users: Array<{
+      id: number
+      username: string
+      email: string
+      role: string
+      created_at: string
+      is_active: boolean
+    }>
+    recent_bookings: Array<{
+      id: number
+      booking_date: string
+      booking_time: string
+      status: string
+      created_at: string
+      user: {
+        id: number
+        username: string
+        email: string
+      }
+    }>
+  }
+  usage_limits?: {
+    max_users: number
+    current_users: number
+    users_remaining: number
+    max_bookings: number
+    current_bookings: number
+    bookings_remaining: number
+  }
+}
+
 export default function AdminDashboard() {
-  const [stats, setStats] = useState<PlatformStats | null>(null)
+  const { user } = useAuth()
+  const [platformStats, setPlatformStats] = useState<PlatformStats | null>(null)
+  const [tenantStats, setTenantStats] = useState<TenantStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [period, setPeriod] = useState('30')
 
+  const isSuperAdmin = user?.role === 'super_admin'
+  const isTenantAdmin = user?.role === 'tenant_admin'
+
   useEffect(() => {
-    fetchStats()
-  }, [period])
+    if (user) {
+      fetchStats()
+    }
+  }, [period, user])
 
   const fetchStats = async () => {
+    if (!user) return
+
     try {
       // First try to get a token for API calls
       let token = localStorage.getItem('token')
-      
+
       // If no localStorage token, try to get one from cookie-based auth
       if (!token) {
         try {
@@ -87,20 +168,39 @@ export default function AdminDashboard() {
           return
         }
       }
-      
+
       if (!token) {
         setLoading(false)
         return
       }
 
-      const response = await fetch(`/api/admin/stats?period=${period}`, {
+      // Determine which endpoint to call based on user role
+      let endpoint: string
+      if (isSuperAdmin) {
+        // Super admins get platform-wide stats
+        endpoint = `/api/admin/stats?period=${period}`
+      } else if (isTenantAdmin) {
+        // Tenant admins get tenant-specific stats
+        const tenantId = user.tenant_id || 1 // fallback for testing
+        endpoint = `/api/admin/tenants/${tenantId}/stats?period=${period}`
+      } else {
+        console.error('User role not recognized for dashboard access')
+        setLoading(false)
+        return
+      }
+
+      const response = await fetch(endpoint, {
         headers: { Authorization: `Bearer ${token}` },
         credentials: 'include'
       })
 
       if (response.ok) {
         const data = await response.json()
-        setStats(data.stats)
+        if (isSuperAdmin) {
+          setPlatformStats(data.stats)
+        } else if (isTenantAdmin) {
+          setTenantStats(data.stats)
+        }
       } else {
         console.error('Failed to fetch stats:', response.status, response.statusText)
         try {
@@ -241,7 +341,7 @@ export default function AdminDashboard() {
     )
   }
 
-  if (!stats) {
+  if ((isSuperAdmin && !platformStats) || (isTenantAdmin && !tenantStats)) {
     return (
       <div className="flex items-center justify-center min-h-64">
         <div className="text-center">
@@ -254,13 +354,23 @@ export default function AdminDashboard() {
     )
   }
 
+  // Get the stats based on user role
+  const stats = isSuperAdmin ? platformStats : tenantStats
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="admin-heading-lg font-bold text-monastery-800">Admin Dashboard</h1>
-          <p className="admin-text-responsive text-monastery-600 mt-1">Platform overview and key metrics</p>
+          <h1 className="admin-heading-lg font-bold text-monastery-800">
+            {isSuperAdmin ? 'Platform Dashboard' : 'Organization Dashboard'}
+          </h1>
+          <p className="admin-text-responsive text-monastery-600 mt-1">
+            {isSuperAdmin
+              ? 'Platform overview and key metrics'
+              : `${tenantStats?.tenant.name || 'Organization'} overview and metrics`
+            }
+          </p>
         </div>
         
         <div className="flex items-center space-x-2 shrink-0">
@@ -279,24 +389,26 @@ export default function AdminDashboard() {
 
       {/* Key Metrics */}
       <div className="admin-dashboard-grid">
-        <StatsCard
-          title="Total Tenants"
-          value={stats.overview.total_tenants}
-          icon={
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-            </svg>
-          }
-          change={stats.growth.tenants.growth_percentage !== 0 ? {
-            value: stats.growth.tenants.growth_percentage,
-            type: stats.growth.tenants.growth_percentage > 0 ? 'increase' : 'decrease',
-            period: `vs last ${period} days`
-          } : undefined}
-          description={`${stats.overview.active_tenants} active`}
-        />
+        {isSuperAdmin && platformStats && (
+          <StatsCard
+            title="Total Tenants"
+            value={platformStats.overview.total_tenants}
+            icon={
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              </svg>
+            }
+            change={platformStats.growth.tenants.growth_percentage !== 0 ? {
+              value: platformStats.growth.tenants.growth_percentage,
+              type: platformStats.growth.tenants.growth_percentage > 0 ? 'increase' : 'decrease',
+              period: `vs last ${period} days`
+            } : undefined}
+            description={`${platformStats.overview.active_tenants} active`}
+          />
+        )}
 
         <StatsCard
-          title="Total Users"
+          title={isSuperAdmin ? "Total Users" : "Organization Users"}
           value={stats.overview.total_users}
           icon={
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -312,7 +424,7 @@ export default function AdminDashboard() {
         />
 
         <StatsCard
-          title="Total Bookings"
+          title={isSuperAdmin ? "Total Bookings" : "Organization Bookings"}
           value={stats.overview.total_bookings}
           icon={
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -327,16 +439,29 @@ export default function AdminDashboard() {
           description={`${stats.overview.recent_bookings} recent`}
         />
 
-        <StatsCard
-          title="Active Tenants"
-          value={stats.overview.active_tenants}
-          icon={
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          }
-          description={`${((stats.overview.active_tenants / stats.overview.total_tenants) * 100).toFixed(1)}% of total`}
-        />
+        {isSuperAdmin && platformStats ? (
+          <StatsCard
+            title="Active Tenants"
+            value={platformStats.overview.active_tenants}
+            icon={
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            }
+            description={`${((platformStats.overview.active_tenants / platformStats.overview.total_tenants) * 100).toFixed(1)}% of total`}
+          />
+        ) : isTenantAdmin && tenantStats ? (
+          <StatsCard
+            title="Confirmed Bookings"
+            value={tenantStats.overview.confirmed_bookings}
+            icon={
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            }
+            description={`${tenantStats.overview.pending_bookings} pending, ${tenantStats.overview.cancelled_bookings} cancelled`}
+          />
+        ) : null}
       </div>
 
       {/* Distribution Charts */}

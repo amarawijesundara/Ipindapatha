@@ -8,6 +8,7 @@ interface AuthState {
   token: string | null
   loading: boolean
   error: string | null
+  initialized: boolean // Track if auth has been initialized
 }
 
 type AuthAction =
@@ -16,6 +17,7 @@ type AuthAction =
   | { type: 'LOGIN_SUCCESS'; payload: { user: User; token: string } }
   | { type: 'LOGOUT' }
   | { type: 'UPDATE_USER'; payload: User }
+  | { type: 'SET_INITIALIZED'; payload: boolean }
 
 interface AuthContextType extends AuthState {
   login: (identifier: string, password: string) => Promise<void>
@@ -33,6 +35,7 @@ const initialState: AuthState = {
   token: null,
   loading: true, // Start with loading true to prevent premature redirects
   error: null,
+  initialized: false, // Track initialization state
 }
 
 function authReducer(state: AuthState, action: AuthAction): AuthState {
@@ -40,7 +43,7 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
     case 'SET_LOADING':
       return { ...state, loading: action.payload, error: null }
     case 'SET_ERROR':
-      return { ...state, error: action.payload, loading: false }
+      return { ...state, error: action.payload, loading: false, initialized: true }
     case 'LOGIN_SUCCESS':
       return {
         ...state,
@@ -48,11 +51,14 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
         token: action.payload.token,
         loading: false,
         error: null,
+        initialized: true,
       }
     case 'LOGOUT':
-      return { ...initialState, loading: false }
+      return { ...initialState, loading: false, initialized: true }
     case 'UPDATE_USER':
       return { ...state, user: action.payload }
+    case 'SET_INITIALIZED':
+      return { ...state, initialized: action.payload, loading: false }
     default:
       return state
   }
@@ -61,16 +67,23 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(authReducer, initialState)
 
-  const verifyToken = async (): Promise<void> => {
+  const verifyToken = async (retryCount = 0, maxRetries = 3): Promise<void> => {
+    console.log(`🔍 AuthContext: Starting token verification (attempt ${retryCount + 1}/${maxRetries + 1})`)
+
     try {
       const response = await fetch('/api/auth/verify', {
         method: 'GET',
         credentials: 'include', // Include cookies
+        cache: 'no-cache', // Prevent caching issues
       })
+
+      console.log('🔍 AuthContext: Token verification response status:', response.status)
 
       if (!response.ok) {
         // Only logout on 401/403 errors (token invalid/expired)
         if (response.status === 401 || response.status === 403) {
+          console.log('🚫 AuthContext: Token invalid/expired, logging out')
+
           // Clear expired token by calling logout API to clean cookies
           try {
             await fetch('/api/auth/logout', {
@@ -80,26 +93,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           } catch (logoutError) {
             console.debug('Logout API call failed during token cleanup:', logoutError)
           }
-          
+
           dispatch({ type: 'LOGOUT' })
+        } else if (retryCount < maxRetries && (response.status >= 500 || response.status === 0)) {
+          // Retry on server errors or network issues
+          console.log(`🔄 AuthContext: Retrying token verification in ${(retryCount + 1) * 1000}ms`)
+          setTimeout(() => verifyToken(retryCount + 1, maxRetries), (retryCount + 1) * 1000)
+          return
         } else {
-          // For other errors (500, network issues), just stop loading but keep user logged in
-          console.error('Token verification error (non-auth):', response.status)
-          dispatch({ type: 'SET_LOADING', payload: false })
+          // For other errors or max retries reached, mark as initialized but unauthenticated
+          console.error('❌ AuthContext: Token verification failed after retries:', response.status)
+          dispatch({ type: 'SET_INITIALIZED', payload: true })
         }
         return
       }
 
       const data = await response.json()
+      console.log('✅ AuthContext: Token verification successful, user:', data.user?.username)
+
       dispatch({
         type: 'LOGIN_SUCCESS',
-        payload: { user: data.user, token: 'cookie-based' },
+        payload: { user: data.user, token: 'authenticated' }, // Use clearer token state
       })
     } catch (error) {
-      // Network errors are common during development - reduce noise
-      console.debug('Token verification network error:', error)
-      // For network errors, don't logout - just stop loading
-      dispatch({ type: 'SET_LOADING', payload: false })
+      console.error('❌ AuthContext: Token verification network error:', error)
+
+      if (retryCount < maxRetries) {
+        // Retry on network errors
+        console.log(`🔄 AuthContext: Retrying after network error in ${(retryCount + 1) * 1000}ms`)
+        setTimeout(() => verifyToken(retryCount + 1, maxRetries), (retryCount + 1) * 1000)
+      } else {
+        // Max retries reached - mark as initialized but unauthenticated
+        console.error('❌ AuthContext: Max retries reached, marking as initialized')
+        dispatch({ type: 'SET_INITIALIZED', payload: true })
+      }
     }
   }
 
@@ -109,8 +136,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = async (identifier: string, password: string): Promise<void> => {
+    console.log('🔑 AuthContext: Starting login for:', identifier)
     dispatch({ type: 'SET_LOADING', payload: true })
-    
+
     try {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
@@ -119,18 +147,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ identifier, password }),
       })
 
+      console.log('🔑 AuthContext: Login response status:', response.status)
+
       const data = await response.json()
 
       if (!response.ok) {
+        console.log('❌ AuthContext: Login failed:', data.message)
         throw new Error(data.message || 'Login failed')
       }
+
+      console.log('✅ AuthContext: Login successful for user:', data.user?.username)
 
       // No need to store token in localStorage - it's now in httpOnly cookie
       dispatch({
         type: 'LOGIN_SUCCESS',
-        payload: { user: data.user, token: 'cookie-based' },
+        payload: { user: data.user, token: 'authenticated' },
       })
     } catch (error) {
+      console.error('❌ AuthContext: Login error:', error)
       dispatch({
         type: 'SET_ERROR',
         payload: error instanceof Error ? error.message : 'Login failed',
@@ -159,7 +193,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // No need to store token in localStorage - it's now in httpOnly cookie
       dispatch({
         type: 'LOGIN_SUCCESS',
-        payload: { user: data.user, token: 'cookie-based' },
+        payload: { user: data.user, token: 'authenticated' },
       })
     } catch (error) {
       dispatch({
@@ -171,22 +205,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const logout = async (): Promise<void> => {
+    console.log('🚪 AuthContext: Starting logout')
+
     try {
       // Call logout API to clear httpOnly cookie
       await fetch('/api/auth/logout', {
         method: 'POST',
         credentials: 'include',
       })
+      console.log('✅ AuthContext: Logout API call successful')
     } catch (error) {
-      console.error('Logout API call failed:', error)
+      console.error('❌ AuthContext: Logout API call failed:', error)
     }
-    
+
     // Also clear localStorage token for backward compatibility
     localStorage.removeItem('token')
     dispatch({ type: 'LOGOUT' })
+    console.log('✅ AuthContext: Logout complete')
   }
 
-  // Get auth token for API calls (checks both localStorage and cookies)
+  // Get auth token for API calls (simplified for cookie-based auth)
   const getAuthToken = async (): Promise<string | null> => {
     // First check localStorage for backward compatibility
     const localToken = localStorage.getItem('token')
@@ -194,7 +232,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return localToken
     }
 
-    // If no localStorage token, try to get one from cookie-based auth
+    // For cookie-based auth, verify the session exists
     try {
       const response = await fetch('/api/auth/verify', {
         method: 'GET',
@@ -203,18 +241,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (response.ok) {
         const data = await response.json()
-        // For cookie-based auth, we'll need to get a temporary token for API calls
         if (data.user) {
-          // Try to get a token specifically for API calls
-          const tokenResponse = await fetch('/api/auth/token', {
-            method: 'GET',
-            credentials: 'include',
-          })
-          
-          if (tokenResponse.ok) {
-            const tokenData = await tokenResponse.json()
-            return tokenData.token
-          }
+          // Return a placeholder token indicating valid session
+          return 'authenticated'
         }
       }
     } catch (error) {
@@ -237,7 +266,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (data.user) {
           dispatch({
             type: 'LOGIN_SUCCESS',
-            payload: { user: data.user, token: data.token || 'cookie-based' },
+            payload: { user: data.user, token: data.token || 'authenticated' },
           })
           
           // Update localStorage token if provided

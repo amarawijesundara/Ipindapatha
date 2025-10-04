@@ -29,9 +29,21 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [createLoading, setCreateLoading] = useState(false)
+  const [tenants, setTenants] = useState<{id: number, name: string, subdomain: string}[]>([])
+  const [createForm, setCreateForm] = useState({
+    username: '',
+    email: '',
+    password: '',
+    role: 'user',
+    tenantId: '',
+    phoneNumber: ''
+  })
 
   useEffect(() => {
     fetchUsers()
+    fetchTenants()
   }, [])
 
   const fetchUsers = async () => {
@@ -178,6 +190,123 @@ export default function UsersPage() {
       console.error('Failed to update user role:', error)
     } finally {
       setActionLoading(null)
+    }
+  }
+
+  const fetchTenants = async () => {
+    try {
+      let token = localStorage.getItem('token')
+
+      if (!token) {
+        try {
+          const tokenResponse = await fetch('/api/auth/token', {
+            credentials: 'include'
+          })
+          if (tokenResponse.ok) {
+            const tokenData = await tokenResponse.json()
+            token = tokenData.token
+          }
+        } catch (error) {
+          console.error('Failed to get token:', error)
+          return
+        }
+      }
+
+      if (!token) {
+        console.error('No authentication token available')
+        return
+      }
+
+      const response = await fetch('/api/admin/tenants', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        credentials: 'include'
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setTenants(data.tenants || [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch tenants:', error)
+    }
+  }
+
+  const handleCreateUser = async () => {
+    setCreateLoading(true)
+
+    try {
+      let token = localStorage.getItem('token')
+
+      if (!token) {
+        try {
+          const tokenResponse = await fetch('/api/auth/token', {
+            credentials: 'include'
+          })
+          if (tokenResponse.ok) {
+            const tokenData = await tokenResponse.json()
+            token = tokenData.token
+          }
+        } catch (error) {
+          console.error('Failed to get token:', error)
+          return
+        }
+      }
+
+      if (!token) {
+        console.error('No authentication token available')
+        return
+      }
+
+      const requestBody: any = {
+        username: createForm.username,
+        email: createForm.email,
+        password: createForm.password,
+        role: createForm.role,
+        phoneNumber: createForm.phoneNumber || undefined
+      }
+
+      // Only include tenantId if it's selected and not empty
+      if (createForm.tenantId && createForm.tenantId !== '') {
+        requestBody.tenantId = parseInt(createForm.tenantId)
+      }
+
+      const response = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        credentials: 'include',
+        body: JSON.stringify(requestBody)
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        // Add the new user to the list
+        setUsers(prev => [data.user, ...prev])
+        // Reset form and close modal
+        setCreateForm({
+          username: '',
+          email: '',
+          password: '',
+          role: 'user',
+          tenantId: '',
+          phoneNumber: ''
+        })
+        setShowCreateModal(false)
+
+        alert('User created successfully!')
+      } else {
+        const errorData = await response.json()
+        alert(`Error: ${errorData.message}`)
+      }
+    } catch (error) {
+      console.error('Failed to create user:', error)
+      alert('Failed to create user. Please try again.')
+    } finally {
+      setCreateLoading(false)
     }
   }
 
@@ -351,9 +480,20 @@ export default function UsersPage() {
           <h1 className="text-2xl font-bold text-monastery-800">User Management</h1>
           <p className="text-monastery-600">Manage users across all monastery tenants</p>
         </div>
-        
-        <div className="text-sm text-monastery-600">
-          {users.length} user{users.length !== 1 ? 's' : ''} total
+
+        <div className="flex items-center space-x-4">
+          <div className="text-sm text-monastery-600">
+            {users.length} user{users.length !== 1 ? 's' : ''} total
+          </div>
+          <Button
+            onClick={() => setShowCreateModal(true)}
+            className="bg-primary-600 hover:bg-primary-700 text-white"
+          >
+            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Create User
+          </Button>
         </div>
       </div>
 
@@ -536,6 +676,138 @@ export default function UsersPage() {
                     Close
                   </Button>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create User Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-monastery-200 px-6 py-4 rounded-t-xl">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-monastery-800">Create New User</h2>
+                <button
+                  onClick={() => setShowCreateModal(false)}
+                  className="text-monastery-500 hover:text-monastery-700"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Username */}
+              <div>
+                <label className="block text-sm font-medium text-monastery-600 mb-1">Username</label>
+                <input
+                  type="text"
+                  value={createForm.username}
+                  onChange={(e) => setCreateForm(prev => ({ ...prev, username: e.target.value }))}
+                  className="w-full px-3 py-2 border border-monastery-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="Enter username"
+                  required
+                />
+              </div>
+
+              {/* Email */}
+              <div>
+                <label className="block text-sm font-medium text-monastery-600 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={createForm.email}
+                  onChange={(e) => setCreateForm(prev => ({ ...prev, email: e.target.value }))}
+                  className="w-full px-3 py-2 border border-monastery-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="Enter email address"
+                  required
+                />
+              </div>
+
+              {/* Password */}
+              <div>
+                <label className="block text-sm font-medium text-monastery-600 mb-1">Password</label>
+                <input
+                  type="password"
+                  value={createForm.password}
+                  onChange={(e) => setCreateForm(prev => ({ ...prev, password: e.target.value }))}
+                  className="w-full px-3 py-2 border border-monastery-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="Enter password (min 6 characters)"
+                  minLength={6}
+                  required
+                />
+              </div>
+
+              {/* Phone Number */}
+              <div>
+                <label className="block text-sm font-medium text-monastery-600 mb-1">Phone Number (Optional)</label>
+                <input
+                  type="tel"
+                  value={createForm.phoneNumber}
+                  onChange={(e) => setCreateForm(prev => ({ ...prev, phoneNumber: e.target.value }))}
+                  className="w-full px-3 py-2 border border-monastery-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="Enter phone number"
+                />
+              </div>
+
+              {/* Role */}
+              <div>
+                <label className="block text-sm font-medium text-monastery-600 mb-1">Role</label>
+                <select
+                  value={createForm.role}
+                  onChange={(e) => setCreateForm(prev => ({ ...prev, role: e.target.value }))}
+                  className="w-full px-3 py-2 border border-monastery-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="user">User</option>
+                  <option value="tenant_manager">Tenant Manager</option>
+                  <option value="tenant_admin">Tenant Admin</option>
+                  <option value="super_admin">Super Admin</option>
+                </select>
+              </div>
+
+              {/* Tenant Selection */}
+              <div>
+                <label className="block text-sm font-medium text-monastery-600 mb-1">
+                  Monastery/Tenant (Optional)
+                </label>
+                <select
+                  value={createForm.tenantId}
+                  onChange={(e) => setCreateForm(prev => ({ ...prev, tenantId: e.target.value }))}
+                  className="w-full px-3 py-2 border border-monastery-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="">No specific tenant (Platform user)</option>
+                  {tenants.map(tenant => (
+                    <option key={tenant.id} value={tenant.id.toString()}>
+                      {tenant.name} ({tenant.subdomain})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-monastery-500 mt-1">
+                  Leave empty for platform-wide super admins. Select a monastery for tenant-specific roles.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-monastery-200 bg-monastery-50 rounded-b-xl">
+              <div className="flex justify-end space-x-3">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowCreateModal(false)}
+                  disabled={createLoading}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleCreateUser}
+                  loading={createLoading}
+                  disabled={!createForm.username || !createForm.email || !createForm.password || createForm.password.length < 6}
+                  className="bg-primary-600 hover:bg-primary-700 text-white"
+                >
+                  Create User
+                </Button>
               </div>
             </div>
           </div>

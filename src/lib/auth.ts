@@ -3,21 +3,26 @@ import prisma from './db'
 import { User, UserCreateInput } from '@/types'
 
 export class UserService {
-  // Find user by email or username (simplified for basic auth)
+  // Find user by email or username with explicit tenant scoping
   static async findByEmailOrUsername(identifier: string, tenantId?: number): Promise<User | null> {
     try {
-      // Search for any active user (super admin or regular user)
+      const whereCondition: any = {
+        OR: [
+          { email: identifier },
+          { username: identifier }
+        ],
+        isActive: true
+      }
+
+      // Apply tenant filtering based on the provided tenantId
+      if (tenantId !== undefined) {
+        // When tenantId is provided, only search within that tenant
+        whereCondition.tenantId = tenantId
+      }
+      // When tenantId is undefined, search globally (no tenant restriction)
+
       const user = await prisma.user.findFirst({
-        where: {
-          OR: [
-            { email: identifier },
-            { username: identifier }
-          ],
-          isActive: true,
-          // For simplified auth, we can search across all users
-          // Super admins have tenantId: null, regular users have tenantId
-          ...(tenantId !== undefined ? { tenantId: tenantId } : {})
-        }
+        where: whereCondition
       })
 
       if (user) {

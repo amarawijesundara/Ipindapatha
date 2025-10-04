@@ -5,7 +5,7 @@ import { Button, Loading, BookingDetailModal, ConfirmationModal } from '@/compon
 import AdminTable from '@/components/ui/AdminTable'
 
 interface Booking {
-  id: number
+  id: number | string // Can be number or "recurring-{id}"
   user_id: number
   booking_date: string
   meal_period?: string
@@ -13,8 +13,10 @@ interface Booking {
   meal_time_range?: string
   offering_type?: string
   event_note?: string
-  status: 'pending' | 'confirmed' | 'cancelled'
+  status: 'pending' | 'confirmed' | 'cancelled' | 'recurring'
   is_recurring?: boolean
+  booking_type?: 'regular' | 'recurring'
+  recurring_pattern?: string
   created_at: string
   updated_at: string
   username?: string
@@ -32,6 +34,7 @@ export default function BookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
+  const [typeFilter, setTypeFilter] = useState('all')
   const [updatingBookings, setUpdatingBookings] = useState<Set<number>>(new Set())
   
   // Modal states
@@ -187,8 +190,18 @@ export default function BookingsPage() {
   }
 
   const filteredBookings = bookings.filter(booking => {
-    if (filter === 'all') return true
-    return booking.status === filter
+    // Filter by status
+    const statusMatch = filter === 'all' || booking.status === filter
+
+    // Filter by type
+    let typeMatch = true
+    if (typeFilter === 'regular') {
+      typeMatch = !booking.is_recurring
+    } else if (typeFilter === 'recurring') {
+      typeMatch = booking.is_recurring === true
+    }
+
+    return statusMatch && typeMatch
   })
 
   const columns = [
@@ -373,11 +386,22 @@ export default function BookingsPage() {
             onChange={(e) => setFilter(e.target.value)}
             className="px-3 py-1 border border-monastery-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
           >
-            <option value="all">All Bookings</option>
+            <option value="all">All Status</option>
             <option value="pending">Pending</option>
             <option value="confirmed">Confirmed</option>
             <option value="cancelled">Cancelled</option>
           </select>
+
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            className="px-3 py-1 border border-monastery-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+          >
+            <option value="all">All Types</option>
+            <option value="regular">Regular</option>
+            <option value="recurring">Recurring</option>
+          </select>
+
           <div className="text-sm text-monastery-600">
             {filteredBookings.length} booking{filteredBookings.length !== 1 ? 's' : ''}
           </div>

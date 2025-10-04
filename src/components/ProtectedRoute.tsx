@@ -9,27 +9,42 @@ interface ProtectedRouteProps {
 }
 
 export default function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { user, loading, token } = useAuth()
+  const { user, loading, token, initialized } = useAuth()
   const router = useRouter()
   const [shouldRedirect, setShouldRedirect] = useState(false)
 
   useEffect(() => {
-    // Only attempt redirect after loading is complete and we're sure there's no user
-    if (!loading && !user && !token) {
+    console.log('🛡️ ProtectedRoute: Auth state changed', {
+      user: user?.username,
+      loading,
+      token: !!token,
+      initialized
+    })
+
+    // Wait for auth to be initialized before making any decisions
+    if (!initialized) {
+      console.log('🛡️ ProtectedRoute: Auth not initialized yet, waiting...')
+      return
+    }
+
+    // Only attempt redirect after auth is initialized and we're sure there's no user
+    if (initialized && !user && !token) {
+      console.log('🛡️ ProtectedRoute: Auth initialized, no user found, redirecting to login')
       setShouldRedirect(true)
       // Small delay to prevent race conditions
       const timer = setTimeout(() => {
         router.push('/login')
       }, 100)
-      
+
       return () => clearTimeout(timer)
     } else if (user && token) {
+      console.log('🛡️ ProtectedRoute: User authenticated, allowing access')
       setShouldRedirect(false)
     }
-  }, [user, loading, token, router])
+  }, [user, loading, token, initialized, router])
 
-  // Show loading while authentication is being verified
-  if (loading) {
+  // Show loading while authentication is being verified or not initialized
+  if (loading || !initialized) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-secondary-50">
         <div className="text-center">
@@ -41,7 +56,7 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   }
 
   // Show loading while redirect is happening
-  if (shouldRedirect || (!user && !token)) {
+  if (shouldRedirect) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-secondary-50">
         <div className="text-center">

@@ -6,14 +6,9 @@ export async function POST() {
     message: 'Logout successful'
   })
 
-  // Clear the httpOnly cookie by setting it with maxAge: 0
-  response.cookies.set('token', '', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 0,
-    path: '/'
-  })
+  // Clear the httpOnly cookie - simplified and more reliable
+  console.log('Clearing auth cookie on logout')
+  response.cookies.delete('token')
 
   return response
 }

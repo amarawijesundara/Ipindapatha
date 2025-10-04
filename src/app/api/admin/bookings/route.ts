@@ -3,12 +3,12 @@ import { verifyToken } from '@/lib/jwt'
 import prisma from '@/lib/db'
 import { MEAL_PERIODS, formatMealPeriodName } from '@/lib/utils/mealCategories'
 
-// GET /api/admin/bookings - Get all bookings across tenants (Super Admin only)
+// GET /api/admin/bookings - Get all bookings across tenants (Admin only)
 export async function GET(request: NextRequest) {
   try {
     // Verify admin authentication using cookies
     const token = request.cookies.get('token')?.value
-    
+
     if (!token) {
       return NextResponse.json(
         { error: 'Authentication required' },
@@ -17,10 +17,10 @@ export async function GET(request: NextRequest) {
     }
 
     const payload = await verifyToken(token)
-    
-    if (!payload || payload.role !== 'super_admin') {
+
+    if (!payload || !['super_admin', 'tenant_admin'].includes(payload.role)) {
       return NextResponse.json(
-        { error: 'Super admin access required' },
+        { error: 'Admin access required' },
         { status: 403 }
       )
     }
@@ -40,8 +40,13 @@ export async function GET(request: NextRequest) {
       where.tenantId = parseInt(tenantId)
     }
 
-    // Get bookings with user and tenant information
-    const bookings = await prisma.booking.findMany({
+    // Apply tenant filtering for tenant admins
+    if (payload.role === 'tenant_admin') {
+      where.tenantId = payload.tenantId
+    }
+
+    // Get regular bookings with user and tenant information
+    const regularBookings = await prisma.booking.findMany({
       where,
       include: {
         user: {
@@ -68,11 +73,51 @@ export async function GET(request: NextRequest) {
       skip: offset
     })
 
-    // Get total count for pagination
-    const totalCount = await prisma.booking.count({ where })
+    // Get recurring bookings with user and tenant information
+    const recurringWhere: any = {}
 
-    // Transform bookings for response
-    const transformedBookings = bookings.map(booking => {
+    // Apply tenant filtering for recurring bookings
+    if (payload.role === 'tenant_admin') {
+      recurringWhere.tenantId = payload.tenantId
+    } else if (tenantId) {
+      recurringWhere.tenantId = parseInt(tenantId)
+    }
+
+    const recurringBookings = await prisma.recurringBooking.findMany({
+      where: {
+        ...recurringWhere,
+        isActive: true
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            email: true,
+            phoneNumber: true
+          }
+        },
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            subdomain: true,
+            isActive: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    })
+
+    // Get total count for pagination (combining both types)
+    const totalRegularCount = await prisma.booking.count({ where })
+    const totalRecurringCount = await prisma.recurringBooking.count({ where: recurringWhere })
+    const totalCount = totalRegularCount + totalRecurringCount
+
+    // Transform regular bookings for response
+    const transformedRegularBookings = regularBookings.map(booking => {
       // Handle meal period display
       let mealPeriodDisplay = null
       let mealTimeRange = null
@@ -90,7 +135,7 @@ export async function GET(request: NextRequest) {
       return {
         id: booking.id,
         user_id: booking.userId,
-        booking_date: booking.bookingDate.toISOString().split('T')[0], // YYYY-MM-DD format
+        booking_date: booking.bookingDate.toLocaleDateString('en-CA'), // YYYY-MM-DD format, matches PostgreSQL local date
         meal_period: booking.mealPeriod || null,
         meal_display: mealPeriodDisplay,
         meal_time_range: mealTimeRange,
@@ -98,6 +143,7 @@ export async function GET(request: NextRequest) {
         event_note: booking.eventNote,
         status: booking.status,
         is_recurring: booking.isRecurring || false,
+        booking_type: 'regular',
         created_at: booking.createdAt.toISOString(),
         updated_at: booking.updatedAt.toISOString(),
         username: booking.user.username,
@@ -112,14 +158,72 @@ export async function GET(request: NextRequest) {
       }
     })
 
+    // Transform recurring bookings for response
+    const transformedRecurringBookings = recurringBookings.map(booking => {
+      // Handle meal period display
+      let mealPeriodDisplay = null
+      let mealTimeRange = null
+
+      if (booking.mealPeriod && MEAL_PERIODS[booking.mealPeriod as keyof typeof MEAL_PERIODS]) {
+        const mealInfo = MEAL_PERIODS[booking.mealPeriod as keyof typeof MEAL_PERIODS]
+        mealPeriodDisplay = mealInfo.name
+        mealTimeRange = mealInfo.timeRange
+      } else if (booking.mealPeriod) {
+        // Fallback for unknown meal periods
+        mealPeriodDisplay = formatMealPeriodName(booking.mealPeriod as any)
+        mealTimeRange = 'Time not specified'
+      }
+
+      // Generate a synthetic booking date for the current year
+      const currentYear = new Date().getFullYear()
+      const month = booking.bookingMonth.toString().padStart(2, '0')
+      const day = booking.bookingDay.toString().padStart(2, '0')
+      const dateStr = `${currentYear}-${month}-${day}`
+
+      return {
+        id: `recurring-${booking.id}`, // Prefix to distinguish from regular bookings
+        user_id: booking.userId,
+        booking_date: dateStr, // YYYY-MM-DD format, consistent with other APIs
+        meal_period: booking.mealPeriod || null,
+        meal_display: mealPeriodDisplay,
+        meal_time_range: mealTimeRange,
+        offering_type: booking.offeringType || 'food_preparation',
+        event_note: booking.eventNote,
+        status: 'recurring',
+        is_recurring: true,
+        booking_type: 'recurring',
+        recurring_pattern: `Every ${booking.bookingMonth}/${booking.bookingDay}`,
+        created_at: booking.createdAt.toISOString(),
+        updated_at: booking.updatedAt.toISOString(),
+        username: booking.user.username,
+        email: booking.user.email,
+        phone_number: booking.user.phoneNumber,
+        tenant: {
+          id: booking.tenant.id,
+          name: booking.tenant.name,
+          subdomain: booking.tenant.subdomain,
+          is_active: booking.tenant.isActive
+        }
+      }
+    })
+
+    // Combine and sort all bookings by date (most recent first)
+    const allBookings = [...transformedRegularBookings, ...transformedRecurringBookings]
+    allBookings.sort((a, b) => new Date(b.booking_date).getTime() - new Date(a.booking_date).getTime())
+
     return NextResponse.json({
       message: 'Bookings retrieved successfully',
-      bookings: transformedBookings,
+      bookings: allBookings,
       pagination: {
         total: totalCount,
         limit: limit,
         offset: offset,
         hasMore: offset + limit < totalCount
+      },
+      summary: {
+        regular_bookings: transformedRegularBookings.length,
+        recurring_bookings: transformedRecurringBookings.length,
+        total_displayed: allBookings.length
       }
     })
 
@@ -132,12 +236,12 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// PATCH /api/admin/bookings - Update booking status (Super Admin only)
+// PATCH /api/admin/bookings - Update booking status (Admin only)
 export async function PATCH(request: NextRequest) {
   try {
     // Verify admin authentication using cookies
     const token = request.cookies.get('token')?.value
-    
+
     if (!token) {
       return NextResponse.json(
         { error: 'Authentication required' },
@@ -146,10 +250,10 @@ export async function PATCH(request: NextRequest) {
     }
 
     const payload = await verifyToken(token)
-    
-    if (!payload || payload.role !== 'super_admin') {
+
+    if (!payload || !['super_admin', 'tenant_admin'].includes(payload.role)) {
       return NextResponse.json(
-        { error: 'Super admin access required' },
+        { error: 'Admin access required' },
         { status: 403 }
       )
     }
@@ -186,6 +290,14 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json(
         { error: 'Booking not found' },
         { status: 404 }
+      )
+    }
+
+    // For tenant admins, ensure they can only update bookings in their tenant
+    if (payload.role === 'tenant_admin' && existingBooking.tenantId !== payload.tenantId) {
+      return NextResponse.json(
+        { error: 'Access denied', message: 'You can only modify bookings within your monastery' },
+        { status: 403 }
       )
     }
 

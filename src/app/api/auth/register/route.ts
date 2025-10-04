@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { UserService } from '@/lib/auth'
 import { generateToken } from '@/lib/jwt'
+import { TenantService } from '@/lib/tenant'
+import prisma from '@/lib/db'
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,17 +30,37 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if user already exists (simplified)
-    const existingUser = await UserService.findByEmailOrUsername(email)
-    if (existingUser) {
+    // Determine tenant context from request (subdomain)
+    const tenantContext = await TenantService.resolveTenantContext(request)
+
+    if (!tenantContext) {
+      return NextResponse.json(
+        {
+          error: 'Registration not available',
+          message: 'Please register through your organization\'s portal. Use the correct subdomain (e.g., demo.localhost, niwandakimu.localhost).'
+        },
+        { status: 400 }
+      )
+    }
+
+    const tenantId = tenantContext.tenantId
+    console.log('Registration: Processing registration for tenant:', tenantContext.tenant.subdomain, 'ID:', tenantId)
+
+    // Check if user already exists in THIS tenant
+    const existingUserInTenant = await UserService.findByEmailOrUsername(email, tenantId)
+    if (existingUserInTenant) {
       return NextResponse.json(
         {
           error: 'User already exists',
-          message: 'A user with this email or username already exists'
+          message: `A user with this email already exists in ${tenantContext.tenant.name}. Please sign in instead.`
         },
         { status: 409 }
       )
     }
+
+    // Allow the same email to register across different tenants (monasteries)
+    // This enables users to book meals at multiple monasteries with the same personal email
+    console.log('Registration: Allowing cross-tenant email registration for monastery app')
 
     // Validate role assignment (simplified)
     const allowedRoles = ['user']
@@ -52,12 +74,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create new user (simplified)
-    const user = await UserService.create({ 
-      username, 
-      email, 
-      password, 
-      role
+    // Create new user with tenant assignment (tenant context already determined above)
+    const user = await UserService.create({
+      username,
+      email,
+      password,
+      role,
+      tenant_id: tenantId
     })
     
     if (!user) {
@@ -70,12 +93,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Generate JWT token (simplified)
+    // Generate JWT token with tenant information
     const token = await generateToken({
       userId: user.id,
       username: user.username,
       email: user.email,
-      role: user.role
+      role: user.role,
+      tenantId: user.tenant_id
     })
 
     // Create response and set httpOnly cookie
@@ -93,7 +117,11 @@ export async function POST(request: NextRequest) {
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge: 60 * 60 * 24, // 24 hours
-      path: '/'
+      path: '/',
+      // In development, set domain to allow subdomain sharing
+      ...(process.env.NODE_ENV === 'development' && {
+        domain: '.localhost'
+      })
     })
 
     return response

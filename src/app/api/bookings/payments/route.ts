@@ -60,13 +60,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create payment record
+    // Create payment record (currency will be automatically determined by tenant settings if not provided)
     const payment = await PaymentService.createPayment({
       bookingId,
       tenantId,
       userId: payload.userId,
       amount: parseFloat(amount),
-      currency: currency || 'USD',
+      currency: currency, // Can be undefined, will use tenant currency
       paymentDeadline
     })
 
@@ -129,6 +129,23 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Check if this is a recurring booking template
+    if (bookingId.startsWith('recurring-')) {
+      return NextResponse.json(
+        { error: 'No payment record', message: 'Recurring booking templates do not have individual payment records. Only generated booking instances have payments.' },
+        { status: 404 }
+      )
+    }
+
+    // Validate that bookingId is a valid number (only for non-recurring bookings)
+    const numericBookingId = parseInt(bookingId)
+    if (isNaN(numericBookingId)) {
+      return NextResponse.json(
+        { error: 'Invalid booking ID', message: 'Booking ID must be a valid number for regular bookings' },
+        { status: 400 }
+      )
+    }
+
     // Determine tenant context
     let tenantId: number | undefined
     if (payload.role === 'super_admin') {
@@ -141,7 +158,7 @@ export async function GET(request: NextRequest) {
 
     // Get payment by booking ID
     const payment = await PaymentService.getPaymentByBookingId(
-      parseInt(bookingId), 
+      numericBookingId,
       tenantId
     )
 

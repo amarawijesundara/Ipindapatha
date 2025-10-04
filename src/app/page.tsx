@@ -53,8 +53,13 @@ export default function Home() {
     // Refresh calendar data without page reload to maintain authentication state
     setShowBookingModal(false)
     setSelectedDate(null)
-    
+
     // Trigger calendar refresh by incrementing the refresh key
+    setCalendarRefreshKey(prev => prev + 1)
+  }
+
+  const handleAvailabilityChange = () => {
+    // Trigger calendar refresh when modal detects stale availability data
     setCalendarRefreshKey(prev => prev + 1)
   }
 
@@ -180,6 +185,7 @@ export default function Home() {
           selectedDate={selectedDate}
           onClose={handleCloseModal}
           onBookingComplete={handleBookingComplete}
+          onAvailabilityChange={handleAvailabilityChange}
         />
       )}
     </div>

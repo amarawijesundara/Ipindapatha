@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyToken } from '@/lib/jwt'
 import { BookingService } from '@/lib/bookings'
+import { TenantService } from '@/lib/tenant'
+import prisma from '@/lib/db'
 
 export async function GET(request: NextRequest) {
   try {
@@ -41,13 +43,14 @@ export async function GET(request: NextRequest) {
 
     // Get user's bookings within their tenant
     const bookings = await BookingService.getUserBookings(
-      payload.userId, 
+      payload.userId,
       tenantId,
       {
         status: status || undefined,
         startDate: startDate || undefined,
         endDate: endDate || undefined
-      }
+      },
+      payload.role // Pass user role for role-based filtering
     )
 
     return NextResponse.json({
@@ -94,45 +97,80 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // If monetary donation, validate donation amount
-    if (offeringType === 'monetary_donation') {
-      if (!donationAmount || donationAmount <= 0) {
-        return NextResponse.json(
-          { error: 'Validation failed', message: 'Valid donation amount is required for monetary donations' },
-          { status: 400 }
-        )
-      }
-    }
+    // Note: For monetary donations, donation amount is optional
+    // If not provided, we'll use a default amount when creating the payment record
 
-    // Try to get user from authentication
-    let user = null
-    let tenantId = 1 // Default tenant for simplified system
-    
+    // Extract tenant context from subdomain FIRST (consistent with availability API)
+    let tenantId = 1 // Default fallback
+    let tenantContext = null
+
+    console.log('Booking: Starting tenant resolution process')
+
+    // Try subdomain resolution first
     try {
-      const token = request.cookies.get('token')?.value
-      if (token) {
-        const payload = await verifyToken(token)
-        user = payload
-        // For super_admin and tenant_admin, use proper tenant context
-        if (payload?.role === 'super_admin') {
-          // Super admin can book for any tenant, use provided tenantId or default
-          tenantId = body.tenantId || 1
-        } else if (payload?.tenantId) {
-          tenantId = payload.tenantId
-        } else {
-          tenantId = 1 // Default tenant
-        }
+      tenantContext = await TenantService.resolveTenantContext(request)
+      if (tenantContext) {
+        tenantId = tenantContext.tenantId
+        console.log('Booking: Resolved tenant context for subdomain:', tenantContext.tenant.subdomain, 'tenant ID:', tenantId)
+      } else {
+        console.log('Booking: No tenant context found (localhost or no subdomain)')
       }
     } catch (error) {
-      // No authentication - this is a guest booking (should not happen with current flow)
-      console.log('No authentication found for booking request')
+      console.error('Booking: Error resolving tenant context:', error)
+      // Continue with default tenant for localhost/development
     }
 
-    if (!user) {
+    // Get user authentication - required for all bookings
+    const token = request.cookies.get('token')?.value
+    if (!token) {
       return NextResponse.json(
         { error: 'Authentication required', message: 'Please sign in to complete your booking' },
         { status: 401 }
       )
+    }
+
+    const payload = await verifyToken(token)
+    if (!payload) {
+      return NextResponse.json(
+        { error: 'Invalid token', message: 'Authentication token is invalid or expired' },
+        { status: 401 }
+      )
+    }
+
+    let user = payload
+
+    // Validate user access to tenant (same logic as availability API)
+    if (tenantContext && tenantId) {
+      // We have a specific tenant subdomain - validate user access
+      if (payload.role !== 'super_admin') {
+        // Regular users must belong to the subdomain's tenant
+        if (!payload.tenantId || payload.tenantId !== tenantId) {
+          console.log(`Booking: Access denied - User ${payload.username} (tenant: ${payload.tenantId}) tried to create booking for tenant ${tenantId}`)
+          return NextResponse.json(
+            {
+              error: 'Access denied',
+              message: 'You are not authorized to create bookings for this organization'
+            },
+            { status: 403 }
+          )
+        }
+        console.log(`Booking: Access granted - User ${payload.username} belongs to tenant ${tenantId}`)
+      } else {
+        console.log(`Booking: Super admin ${payload.username} granted access to tenant ${tenantId}`)
+      }
+    } else {
+      // No tenant context (localhost) - use user's JWT tenant or handle super admin
+      if (payload.role === 'super_admin') {
+        // Super admin on localhost can specify tenant or use their JWT tenant or default
+        tenantId = body.tenantId || payload.tenantId || 1
+        console.log(`Booking: Super admin ${payload.username} using tenant ${tenantId} on localhost`)
+      } else if (payload.tenantId) {
+        tenantId = payload.tenantId
+        console.log(`Booking: Regular user ${payload.username} using JWT tenant ${tenantId} on localhost`)
+      } else {
+        tenantId = 1
+        console.log(`Booking: User ${payload.username} using default tenant ${tenantId} on localhost`)
+      }
     }
 
     // Create booking (regular or recurring)
@@ -151,7 +189,20 @@ export async function POST(request: NextRequest) {
 
     // Create payment record if monetary donation
     let paymentRecord = null
-    if (offeringType === 'monetary_donation' && donationAmount && donationAmount > 0) {
+    if (offeringType === 'monetary_donation') {
+      // Get tenant-specific meal period cost
+      let paymentAmount = donationAmount
+
+      if (!paymentAmount || paymentAmount <= 0) {
+        // Use tenant-specific meal period cost as default
+        try {
+          const { calculateTenantMealCosts } = await import('@/lib/utils/mealCategories')
+          paymentAmount = await calculateTenantMealCosts(tenantId, [mealPeriod])
+        } catch (error) {
+          console.error('Error calculating tenant meal costs:', error)
+          paymentAmount = 100.00 // Fallback to default
+        }
+      }
       try {
         const { PaymentService } = await import('@/lib/payments')
         
@@ -171,13 +222,12 @@ export async function POST(request: NextRequest) {
           )
         }
 
-        // Create payment record
+        // Create payment record (currency will be automatically determined by tenant settings)
         paymentRecord = await PaymentService.createPayment({
           bookingId: booking.id,
           tenantId,
           userId: user.userId,
-          amount: parseFloat(donationAmount.toString()),
-          currency: 'USD',
+          amount: parseFloat(paymentAmount.toString()),
           paymentDeadline
         })
 

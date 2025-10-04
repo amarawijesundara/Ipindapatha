@@ -60,9 +60,9 @@ export default function Header() {
                 >
                   {getContent('navigation', 'my_account', t('navigation.myAccount'))}
                 </Link>
-                {user.role === 'super_admin' && (
-                  <Link 
-                    href="/admin" 
+                {(user.role === 'super_admin' || user.role === 'tenant_admin') && (
+                  <Link
+                    href="/admin"
                     className="text-monastery-700 hover:text-primary-600 font-medium transition-colors flex items-center space-x-1"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -181,7 +181,7 @@ export default function Header() {
                   >
                     {getContent('navigation', 'my_account', t('navigation.myAccount'))}
                   </Link>
-                  {user.role === 'super_admin' && (
+                  {(user.role === 'super_admin' || user.role === 'tenant_admin') && (
                     <Link
                       href="/admin"
                       className="block px-3 py-2 text-monastery-700 hover:text-primary-600 hover:bg-monastery-50 rounded-lg font-medium transition-colors"
