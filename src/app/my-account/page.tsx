@@ -7,6 +7,7 @@ import { useAuth } from '@/components/AuthContext'
 import { Container, StatsCard, Button, Card, CardContent, CardHeader, CardTitle } from '@/components/ui'
 import PaymentReceiptUpload from '@/components/PaymentReceiptUpload'
 import { parseBookingDate } from '@/lib/utils/dateValidation'
+import { TenantMealPeriodConfig } from '@/types'
 
 interface Booking {
   id: number | string // Can be number or "recurring-{id}"
@@ -64,15 +65,52 @@ export default function MyAccount() {
     currency: string
   } | null>(null)
   const [groupedPayments, setGroupedPayments] = useState<Record<string, Booking[]>>({})
+  const [tenantCurrency, setTenantCurrency] = useState<string>('USD')
+  const [tenantMealPeriods, setTenantMealPeriods] = useState<TenantMealPeriodConfig[]>([])
+
+  // Helper function to get meal cost by period ID
+  const getMealCost = (mealPeriodId: string): number => {
+    const mealPeriod = tenantMealPeriods.find(period => period.id === mealPeriodId)
+    return mealPeriod?.cost || 50.00 // Fallback to 50.00 if not found
+  }
 
   useEffect(() => {
     fetchUserData()
-  }, [])
+  }, [user])
 
   const fetchUserData = async () => {
     try {
       setError(null)
-      
+
+      // Fetch tenant currency via API
+      console.log('🔍 Debug: User object:', user)
+      if (user?.tenant_id) {
+        console.log('🔍 Debug: Fetching currency for tenant_id:', user.tenant_id)
+        try {
+          const tenantResponse = await fetch('/api/user/tenant/info', {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include'
+          })
+
+          if (tenantResponse.ok) {
+            const tenantData = await tenantResponse.json()
+            console.log('🔍 Debug: Fetched tenant info:', tenantData)
+            setTenantCurrency(tenantData.tenantInfo.currency)
+            setTenantMealPeriods(tenantData.tenantInfo.mealPeriods || [])
+          } else {
+            console.error('Failed to fetch tenant info:', tenantResponse.status)
+          }
+        } catch (error) {
+          console.error('Error fetching tenant currency:', error)
+          // Keep default USD if fetch fails
+        }
+      } else {
+        console.log('🔍 Debug: No tenant_id found in user object')
+      }
+
       // Fetch user's bookings
       const bookingsResponse = await fetch('/api/bookings', {
         credentials: 'include',
@@ -231,7 +269,7 @@ export default function MyAccount() {
     return offeringType === 'monetary_donation' ? 'Monetary Donation' : 'Food Preparation'
   }
 
-  const formatCurrency = (amount: number, currency: string = 'USD') => {
+  const formatCurrency = (amount: number, currency: string = tenantCurrency) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: currency
@@ -260,7 +298,7 @@ export default function MyAccount() {
         paymentId: undefined, // No payment record yet
         bookingId: booking.id,
         amount: 0, // Will be handled in upload component
-        currency: 'USD' // Default, will be determined by tenant
+        currency: tenantCurrency // Use tenant currency
       })
       setShowPaymentUpload(true)
     }
@@ -278,7 +316,6 @@ export default function MyAccount() {
     // For bulk uploads with mixed scenarios, we'll handle it differently
     // For now, let's ensure all bookings have payment records by creating them if needed
     const bookingsWithPayments = []
-    const defaultAmount = 50.00 // This could be made configurable
 
     for (const booking of bookings) {
       if (booking.payment) {
@@ -298,8 +335,8 @@ export default function MyAccount() {
         bookingsWithPayments.push({
           paymentId: 0, // Placeholder, will be created during upload
           bookingId: typeof booking.id === 'string' ? parseInt(booking.id) : booking.id,
-          amount: defaultAmount,
-          currency: 'USD', // Default, will be determined by tenant
+          amount: getMealCost(booking.meal_period || 'morning_meal'), // Use tenant-specific meal cost
+          currency: tenantCurrency, // Use tenant currency
           mealPeriod: booking.meal_period || 'unknown'
         })
       }
@@ -311,7 +348,7 @@ export default function MyAccount() {
         date,
         payments: bookingsWithPayments,
         totalAmount,
-        currency: bookingsWithPayments.find(p => p.paymentId > 0)?.currency || 'USD'
+        currency: bookingsWithPayments.find(p => p.paymentId > 0)?.currency || tenantCurrency
       })
       setShowPaymentUpload(true)
     }
@@ -846,13 +883,26 @@ export default function MyAccount() {
 
                       if (bookingsNeedingReceipts.length === 0) return null
 
-                      // Calculate total for bookings with payment records
+                      // Calculate total for bookings with and without payment records
                       const bookingsWithPayments = bookingsNeedingReceipts.filter(b => b.payment)
-                      const totalAmount = bookingsWithPayments.reduce(
+                      const bookingsWithoutPayments = bookingsNeedingReceipts.filter(b => !b.payment)
+
+                      // Calculate totals
+                      const confirmedAmount = bookingsWithPayments.reduce(
                         (sum, booking) => sum + (booking.payment?.amount || 0), 0
                       )
-                      const currency = bookingsWithPayments[0]?.payment?.currency || 'USD'
-                      const bookingsWithoutPayments = bookingsNeedingReceipts.filter(b => !b.payment)
+                      const estimatedAmount = bookingsWithoutPayments.reduce(
+                        (sum, booking) => sum + getMealCost(booking.meal_period || 'morning_meal'), 0
+                      )
+                      const totalAmount = confirmedAmount + estimatedAmount
+
+                      // Get currency (prefer from existing payments, check all bookings, fallback to tenant currency)
+                      const currency = bookingsWithPayments[0]?.payment?.currency ||
+                                     bookingsNeedingReceipts.find(b => b.payment?.currency)?.payment?.currency ||
+                                     tenantCurrency
+                      console.log('🔍 Debug: Currency logic - existing payment currency:', bookingsWithPayments[0]?.payment?.currency)
+                      console.log('🔍 Debug: Currency logic - tenantCurrency:', tenantCurrency)
+                      console.log('🔍 Debug: Currency logic - final currency:', currency)
 
                       return (
                         <div key={date} className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
@@ -868,8 +918,16 @@ export default function MyAccount() {
                               </h4>
                               <p className="text-sm text-monastery-600">
                                 {bookingsNeedingReceipts.length} meal{bookingsNeedingReceipts.length > 1 ? 's' : ''} •
-                                {bookingsWithPayments.length > 0 && ` Total: ${currency} ${totalAmount}`}
-                                {bookingsWithoutPayments.length > 0 && ` (${bookingsWithoutPayments.length} pending payment creation)`}
+                                Total: {currency} {totalAmount.toFixed(2)}
+                                {bookingsWithPayments.length > 0 && bookingsWithoutPayments.length > 0 &&
+                                  ` (${bookingsWithPayments.length} confirmed, ${bookingsWithoutPayments.length} estimated)`
+                                }
+                                {bookingsWithPayments.length === 0 && bookingsWithoutPayments.length > 0 &&
+                                  ` (all amounts estimated)`
+                                }
+                                {bookingsWithPayments.length > 0 && bookingsWithoutPayments.length === 0 &&
+                                  ` (all confirmed)`
+                                }
                               </p>
                             </div>
                             {bookingsNeedingReceipts.length > 1 ? (
@@ -898,7 +956,8 @@ export default function MyAccount() {
                                   {booking.meal_period?.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'Unknown'}
                                 </span>
                                 <span className="font-medium text-monastery-800">
-                                  {currency} {booking.payment?.amount || 0}
+                                  {currency} {booking.payment?.amount ? booking.payment.amount.toFixed(2) : getMealCost(booking.meal_period || 'morning_meal').toFixed(2)}
+                                  {!booking.payment && <span className="text-xs text-monastery-500 ml-1">(est.)</span>}
                                 </span>
                               </div>
                             ))}
